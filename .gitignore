@@ -1,0 +1,16 @@
+# Build
+*.exe
+*.o
+*.obj
+
+# IDE
+.vscode/
+*.code-workspace
+
+# Sistema
+Thumbs.db
+Desktop.ini
+
+# Outros
+build/
+dist/
