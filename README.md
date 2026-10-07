@@ -7,4 +7,4 @@ I think I'll turn this into a mature engine
 **Used:**
 🏁 C / OpenGL / Raylib Graphics v5.5 / Raylib Graphics Math v2.0
 
-original project created **using:** C99 (1999) / **fork:** C2023 migrate to C2027 when to launch
+original project created **using:** C99 (1999) / **fork:** C23 (2023) migrate to C2027 when to launch
