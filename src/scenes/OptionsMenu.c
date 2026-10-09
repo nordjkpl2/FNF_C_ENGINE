@@ -268,19 +268,26 @@ static void OptionsMenu_Draw([[maybe_unused]] RayScene* scene) {
                 Color clr = WHITE;
                 y += fontPadding + fontSize;
 
-                const char* txt;
+                // culling vertical simples: pula opcoes fora da tela
+                if(pos.y < -100 || pos.y > 850)
+                    continue;
+
+                char txtBuf[96];
+                const char* txt = txtBuf;
                 if(!options[i].active) {
-                    txt = TextFormat("%s", options[i].text);
+                    snprintf(txtBuf, sizeof(txtBuf), "%s", options[i].text);
                     clr = RED;
                 }
                 else if(options[i].type == OPTION_VALUE_INT)
-                    txt = TextFormat("%s: < %d >", options[i].text, (int) options[i].value);
+                    snprintf(txtBuf, sizeof(txtBuf), "%s: < %d >", options[i].text, (int) options[i].value);
                 else if(options[i].type == OPTION_VALUE_FLOAT)
-                    txt = TextFormat("%s: < %.2f >", options[i].text, options[i].value);
+                    snprintf(txtBuf, sizeof(txtBuf), "%s: < %.2f >", options[i].text, (double)options[i].value);
                 else if(options[i].type == OPTION_VALUE_BOOL)
-                    txt = TextFormat("%s: [ %s ]", options[i].text, options[i].value ? "ON" : "OFF");
+                    snprintf(txtBuf, sizeof(txtBuf), "%s: [ %s ]", options[i].text, options[i].value ? "ON" : "OFF");
                 else if(options[i].type == OPTION_VALUE_LIST)
-                    txt = TextFormat("%s: << %s >>", options[i].text, options[i].options[(int) options[i].value]);
+                    snprintf(txtBuf, sizeof(txtBuf), "%s: << %s >>", options[i].text, options[i].options[(int) options[i].value]);
+                else
+                    snprintf(txtBuf, sizeof(txtBuf), "%s", options[i].text);
 
                 clr.a = 150;
                 outlineColor.a = 100; 

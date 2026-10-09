@@ -42,7 +42,13 @@ static Character* target = &dad;
 static Stage stage;
 
 // music
-static char* __song__;
+static char songDir[256];
+static char hasVoices;
+static char audioWasPaused;
+static char returnToEditor;
+static char returnToWeek;
+static char diffSuf[16];
+static char overrideP2[32];
 static Music inst;
 static Music voices;
 static Song song; 
@@ -88,11 +94,6 @@ static Vector2 cameraTarget;
 static Camera2D camGame; 
 static Camera2D camHUD; 
 
-// other
-static RayAnimationHandler numFrames;
-static RayAnimatedObject nums[5]; // can count up to 99,999 
-static float numTime;
-
 // miss sounds
 static Sound missSFX[3]; 
 
@@ -108,6 +109,9 @@ static int healthbarPadding;
 // stats  
 static float health; // 0 - 1, why would fnf use 0 - 2 ???
 static int score;
+static int lastScoreDrawn = -1;
+static char scoreBuf[32] = "Score: 0";
+static float lastVoiceSync = -10.0f;
 
 static float popupTimer;
 static float popupVelocity;
@@ -120,6 +124,45 @@ static float optionOffset;
 static float pauseTimer;
 
 static void UpdateSection(); 
+
+// voz: Voices.ogg unico (par separado so abre no editor/import)
+static void Voices_Load(void) {
+    hasVoices = FileExists(TextFormat("%s/Voices.ogg", songDir));
+    if(hasVoices)
+        voices = LoadMusicStream(TextFormat("%s/Voices.ogg", songDir));
+    float vol = RayGame_MusicVolumeLevel();
+    if(hasVoices) {
+        voices.looping = 0;
+        SetMusicVolume(voices, vol);
+    }
+}
+
+static void Voices_Play(void) {
+    if(hasVoices)
+        PlayMusicStream(voices);
+}
+
+static void Voices_Pause(void) {
+    if(hasVoices)
+        PauseMusicStream(voices);
+}
+
+static void Voices_Resume(void) {
+    if(hasVoices)
+        ResumeMusicStream(voices);
+}
+
+static void Voices_Update(void) {
+    if(hasVoices)
+        UpdateMusicStream(voices);
+}
+
+static void Voices_Unload(void) {
+    if(hasVoices)
+        UnloadMusicStream(voices);
+    hasVoices = 0;
+}
+
 static void PlayState_Create([[maybe_unused]] RayScene* scene) {
     
     // default
@@ -127,13 +170,15 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
         currentSteps = 0;
         currentSection = 0;  
 
-        numTime = 0;
         nextSectionToSpawn = -1;
         spawnedSections = 0;
 
         bop = 1;
 
         score = 0;
+        lastScoreDrawn = -1;
+        lastVoiceSync = -10.0f;
+        audioWasPaused = 1; // streams start paused, first gameplay frame resumes
         health = 0.5f; 
 
         camGame = (Camera2D) { 
@@ -173,17 +218,18 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
             // resetting notes
         }
  
-        inst = LoadMusicStream(TextFormat("assets/songs/%s/Inst.ogg", __song__)); 
-        voices = LoadMusicStream(TextFormat("assets/songs/%s/Voices.ogg", __song__)); 
+        inst = LoadMusicStream(TextFormat("%s/Inst.ogg", songDir)); 
+        Voices_Load();
         
         inst.looping = 0;
-        voices.looping = 0;
+        SetMusicVolume(inst, RayGame_MusicVolumeLevel());
 
         PlayMusicStream(inst);
-        PlayMusicStream(voices);
+        Voices_Play();
 
         PauseMusicStream(inst); 
-        PauseMusicStream(voices); 
+        Voices_Pause(); 
+        audioWasPaused = 1;
 
         BeatManager_New(&songBeat);
         songBeat.music = &inst;
@@ -210,12 +256,6 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
     { 
         vcrFont = LoadFontEx("assets/fonts/vcr.ttf", 32, 0, 0); 
         SetTextureFilter(vcrFont.texture, TEXTURE_FILTER_BILINEAR);
-
-        numFrames = AnimationSet_LoadAnimations("assets/images/other/nums.animset", Render_LoadTexture("assets/images/other/nums.png"));
-        for(int i = 0; i < 5; i++) {
-            RayAnimatedObject* num = nums + i;
-            Render_DefaultAnimated(num);
-        }
 
         healthbarPadding = 4;
         
@@ -264,10 +304,13 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
 
     // loading characters
     {
-        Song_Parse(&song, TextFormat("assets/songs/%s/data.song", __song__));
+        if(diffSuf[0] != 0)
+            Song_LoadSongFromDirDiff(&song, songDir, diffSuf);
+        else
+            Song_LoadSongFromDir(&song, songDir);
 
         Girlfriend_Load(&gf, NULL /* default gf */);
-        Character_Load(&dad, song.player2, 1);
+        Character_Load(&dad, overrideP2[0] != 0 ? overrideP2 : song.player2, 1);
         Character_Load(&bf, song.player1, 0);
         Character_LoadDeathAnimations(&bf, song.player1, deathAnimations);
 
@@ -321,11 +364,11 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
 
     // load song
     {  
-        inst = LoadMusicStream(TextFormat("assets/songs/%s/Inst.ogg", __song__)); 
-        voices = LoadMusicStream(TextFormat("assets/songs/%s/Voices.ogg", __song__)); 
+        inst = LoadMusicStream(TextFormat("%s/Inst.ogg", songDir)); 
+        Voices_Load();
 
         inst.looping = 0;
-        voices.looping = 0;
+        SetMusicVolume(inst, RayGame_MusicVolumeLevel());
         
         // loading notes
         {
@@ -346,9 +389,9 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
         }
 
         PlayMusicStream(inst);
-        PlayMusicStream(voices); 
+        Voices_Play(); 
         PauseMusicStream(inst);
-        PauseMusicStream(voices);
+        Voices_Pause();
 
         //SetMusicVolume(inst, 0);
         //SetMusicVolume(voices, 0); 
@@ -395,6 +438,29 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
     }
 
     camGame.zoom = stage.defaultCameraZoom; 
+
+    // pre-warm: force GPU upload + audio decode now while the loading
+    // screen is up, so the song start does not hitch on first use
+    {
+        BeginDrawing();
+        ClearBackground(BLACK);
+        DrawTexture(dad.object.animationSet.texture, -5000, -5000, WHITE);
+        DrawTexture(bf.object.animationSet.texture, -5000, -5000, WHITE);
+        DrawTexture(gf.object.animationSet.texture, -5000, -5000, WHITE);
+        for(int i = 0; i < stage.objectCount; i++)
+            DrawTexture(stage.objects[i].image, -5000, -5000, WHITE);
+        DrawTexture(Cache_GetNoteAnimations().texture, -5000, -5000, WHITE);
+        DrawTexture(uiAssets.texture, -5000, -5000, WHITE);
+        DrawTexture(dad.icon, -5000, -5000, WHITE);
+        DrawTexture(bf.icon, -5000, -5000, WHITE);
+        DrawTextEx(mainFont, "WARM", (Vector2) {-5000, -5000}, 32, 1, WHITE);
+        DrawTextEx(vcrFont, "WARM", (Vector2) {-5000, -5000}, 16, 1, WHITE);
+        EndDrawing();
+        for(int i = 0; i < 10; i++) {
+            UpdateMusicStream(inst);
+            Voices_Update();
+        }
+    }
 }
 
 static void BeatHit() {
@@ -441,8 +507,11 @@ static void StepHit() {
         return;
 
     float time = GetMusicTimePlayed(inst);
-    if(fabsf(time - GetMusicTimePlayed(voices)) > 0.02f) {
+    // Seek flushes o decoder: so resync com cooldown de 0.5s
+    if(hasVoices && time - lastVoiceSync > 0.5f &&
+       fabsf(time - GetMusicTimePlayed(voices)) > 0.02f) {
         SeekMusicStream(voices, time);
+        lastVoiceSync = time;
     }
     
     Section* section = song.sections + currentSection;
@@ -493,17 +562,21 @@ static void HitNote(Note* note) {
 static void NoteHits() { 
     char pressed[4] = {0, 0, 0, 0}; 
     int pressedNotes = 0;
- 
-    for(int i = 0; i < 4; i++) {
-        if(IsKeyPressed(game_scheme_keys[game_options_scheme][i])) 
-            goto HITS;
-    }
- 
-    //... we didnt even try to press anything
-    // tspmo
-    goto BRUH; 
 
-    HITS: 
+    // cache input once per frame instead of polling raylib per note
+    int keyPressed[4];
+    char keyDown[4];
+    char anyPressed = 0;
+    for(int i = 0; i < 4; i++) {
+        int key = game_scheme_keys[game_options_scheme][i];
+        keyPressed[i] = IsKeyPressed(key);
+        keyDown[i] = IsKeyDown(key);
+        if(keyPressed[i])
+            anyPressed = 1;
+    }
+
+    if(!anyPressed)
+        goto BRUH; 
 
     for(size_t i = firstNote; i < noteCount; i++) {
         Note* note = notes + i;
@@ -516,8 +589,11 @@ static void NoteHits() {
             // the notes are sorted btw
             goto BRUH;
         }
+
+        if(note->id < 0 || note->id > 3)
+            continue;
         
-        if(IsKeyPressed(game_scheme_keys[game_options_scheme][note->id]) && Note_CanBeHit(note, songBeat.time) && !note->pressed && !pressed[note->id]) {
+        if(keyPressed[note->id] && Note_CanBeHit(note, songBeat.time) && !note->pressed && !pressed[note->id]) {
             pressed[note->id] = 1;
             HitNote(note); 
 
@@ -538,13 +614,13 @@ static void NoteHits() {
 
         if(pressed[i])
             AnimatedObject_SetAnimation(&strumNote->object, StrumNote_ConfirmAnimation(i));
-        else if(IsKeyUp(game_scheme_keys[game_options_scheme][i])) {
+        else if(!keyDown[i]) {
             int j = StrumNote_IdleAnimation(i);
             if(strumNote->object.currentAnim.animationIndex != j) {
                 AnimatedObject_SetAnimation(&strumNote->object, j);
             }
         } 
-        else if(IsKeyPressed(game_scheme_keys[game_options_scheme][i])) 
+        else if(keyPressed[i]) 
             AnimatedObject_SetAnimation(&strumNote->object, StrumNote_PressAnimation(i));  
     }  
 } 
@@ -556,7 +632,7 @@ static char retryin;
 static void PlayState_DeadUpdate() {
     // the entire death scene basically
     PauseMusicStream(inst);
-    PauseMusicStream(voices);
+    Voices_Pause();
 
     if(justDied) {
         AnimatedObject_SetAnimation(&bf.object, deathAnimations[0]);
@@ -611,7 +687,12 @@ static void PlayState_DeadUpdate() {
                 UnloadMusicStream(deathMusic);
                 UnloadSound(deathSounds);
 
-                Freeplay_SetScene();
+                if(returnToWeek) {
+                    WeekRun_Stop();
+                    StoryState_SetScene();
+                } else {
+                    Freeplay_SetScene();
+                }
                 return;
             }
         }
@@ -648,7 +729,15 @@ static void PauseMenu_Update([[maybe_unused]] RayScene* scene) {
             RayGame_ResetMusic();
             RayGame_ToggleMusic(1);
 
-            Freeplay_SetScene();
+            if(returnToWeek) {
+                WeekRun_Stop();
+                StoryState_SetScene();
+            } else if(returnToEditor) {
+                ChartEditor_SetSongDir(songDir);
+                ChartEditor_SetScene();
+            } else {
+                Freeplay_SetScene();
+            }
             return;
         }
     }
@@ -667,10 +756,10 @@ static void PauseMenu_Update([[maybe_unused]] RayScene* scene) {
 
 static void PlayState_Update([[maybe_unused]] RayScene* scene) {
     // play sound only if the window is focused  
-
     if(!IsWindowFocused()) {
         PauseMusicStream(inst);
-        PauseMusicStream(voices);
+        Voices_Pause();
+        audioWasPaused = 1;
         return;
     }
 
@@ -713,10 +802,14 @@ static void PlayState_Update([[maybe_unused]] RayScene* scene) {
     }
     else { 
         UpdateMusicStream(inst);
-        UpdateMusicStream(voices);
+        Voices_Update();
 
-        ResumeMusicStream(inst);
-        ResumeMusicStream(voices); 
+        // Resume so acontece depois de unfocus, nao todo frame
+        if(audioWasPaused) {
+            ResumeMusicStream(inst);
+            Voices_Resume();
+            audioWasPaused = 0;
+        }
         
         BeatManager_Update(&songBeat, StepHit, BeatHit); 
 
@@ -724,8 +817,25 @@ static void PlayState_Update([[maybe_unused]] RayScene* scene) {
         if(!IsMusicStreamPlaying(inst)) {
             RayGame_ResetMusic();
             RayGame_ToggleMusic(1);
-            
-            Freeplay_SetScene();
+
+            if(returnToWeek) {
+                WeekRun_AddScore(score);
+                if(WeekRun_Advance()) {
+                    PlayState_SetSongDir(WeekRun_Dir());
+                    PlayState_SetReturnWeek(1);
+                    PlayState_SetCharsOverride(WeekRun_Char());
+                    PlayState_SetDiff(WeekRun_DiffSuffix());
+                    PlayState_SetScene();
+                } else {
+                    WeekRun_Finish();
+                    StoryState_SetScene();
+                }
+            } else if(returnToEditor) {
+                ChartEditor_SetSongDir(songDir);
+                ChartEditor_SetScene();
+            } else {
+                Freeplay_SetScene();
+            }
             return;
         }
 
@@ -830,17 +940,46 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
 
             float endHeight = fmaxf(64.0f, 18.0f * song.speed);   
 
+            // cache hold keys once per frame (era IsKeyUp por sustain por frame)
+            char holdDown[4];
+            for(int k = 0; k < 4; k++)
+                holdDown[k] = IsKeyDown(game_scheme_keys[game_options_scheme][k]);
+
             char clearing = 1;
             for(size_t i = firstNote; i < noteCount; i++) {
                 Note* note = notes + i;
 
+                if(note->id < 0 || note->id > 3) {
+                    if(clearing) {
+                        if(songBeat.time > note->time + note->length + 0.200f)
+                            firstNote++;
+                        else
+                            clearing = 0;
+                    }
+                    continue;
+                }
+
                 StrumNote* targetStrumNote = (note->mustHit ? bfStrumline : dadStrumline) + note->id;
                 renderNote.position.y = targetStrumNote->object.position.y + 450 * (note->time - songBeat.time) * song.speed; 
                 
-                if(renderNote.position.y > 720)
+                if(renderNote.position.y > 760)
                     break;
 
-                AnimatedObject_SetAnimation(&renderNote, Note_Animation(note->id));
+                // culling total acima da tela: pula draw mas mantem miss + clearing
+                float sustainEndY = renderNote.position.y + 450.0f * song.speed * note->length;
+                char fullyAbove = renderNote.position.y < -150 && (note->length <= 0 || sustainEndY < -100);
+                // nota normal ja apertada e fora da tela: so avanca clearing
+                if(fullyAbove && note->pressed) {
+                    if(clearing && songBeat.time > note->time + note->length + 0.200f)
+                        firstNote++;
+                    else if(clearing)
+                        clearing = 0;
+                    continue;
+                }
+
+                int headAnim = Note_Animation(note->id);
+                if(!renderNote.currentAnim.isValid || renderNote.currentAnim.animationIndex != headAnim)
+                    AnimatedObject_SetAnimation(&renderNote, headAnim);
                 renderNote.position.x = targetStrumNote->object.position.x;
 
                 if(!note->mustHit && !note->pressed && songBeat.time >= note->time) {
@@ -850,20 +989,23 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
                 }
 
                 if(note->length > 0) { 
-                    AnimatedObject_SetAnimation(&trail, Note_TrailAnimation(note->id));
+                    int trailAnim = Note_TrailAnimation(note->id);
+                    if(!trail.currentAnim.isValid || trail.currentAnim.animationIndex != trailAnim)
+                        AnimatedObject_SetAnimation(&trail, trailAnim);
                     trail.position.x = targetStrumNote->object.position.x + trailOffset.x; // standard offset
                     trail.position.y = renderNote.position.y + trailOffset.y;
                     trail.scaleY = fmaxf(0.01f, (450.0f * song.speed * note->length - endHeight) / 44.0f);
 
                     trail.color = normalColor;
 
-                    AnimatedObject_SetAnimation(&end, Note_EndAnimation(note->id));
+                    int endAnim = Note_EndAnimation(note->id);
+                    if(!end.currentAnim.isValid || end.currentAnim.animationIndex != endAnim)
+                        AnimatedObject_SetAnimation(&end, endAnim);
                     end.position.x = trail.position.x;
                     end.position.y = trail.position.y + trail.scaleY * 44.0f;   
                     end.scaleY = endHeight / 64.0f;
                     end.color = normalColor;
 
-                    Vector2 cut = GetWorldToScreen2D(ADD_VEC(targetStrumNote->object.position, trailOffset), camHUD);
                     if(!note->missed) {
                         char shouldHold = Note_ShouldHold(note, songBeat.time);
 
@@ -875,20 +1017,33 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
                         else if(!note->pressed)
                             goto SKIP_CLIP;
                         else if(!isPaused && shouldHold) {
-                            if(IsKeyUp(game_scheme_keys[game_options_scheme][note->id])) {
+                            float tailLeft = (note->time + note->length) - songBeat.time;
+                            if(!holdDown[note->id] && tailLeft > 0.12f) {
                                 MissNote(note);
                                 goto SKIP_CLIP;
-                                // stopped holding note => miss!!  
+                                // stopped holding note (before tail grace) => miss!!
                             }
 
                             health = fminf(1, health + 0.04f * RayGame_DeltaTime());
                             bf.idleTimer = 0;  
-                        }  
+                        } 
 
-                        BeginScissorMode(0, cut.y, RayGame_WindowWidth(), RayGame_WindowHeight()); // we only care about the y 
-                            Render_DrawAnimatedObject(&trail);
-                            Render_DrawAnimatedObject(&end);
-                        EndScissorMode(); 
+                        // geometric receptor clip: same visual as the old scissor,
+                        // without flushing the GPU batch per sustain note
+                        {
+                            float receptorY = targetStrumNote->object.position.y + trailOffset.y;
+                            float trailBottom = trail.position.y + trail.scaleY * 44.0f;
+
+                            if(trail.position.y < receptorY) {
+                                trail.scaleY = fmaxf(0.0f, (trailBottom - receptorY) / 44.0f);
+                                trail.position.y = receptorY;
+                            }
+
+                            if(trail.scaleY > 0.0f)
+                                Render_DrawAnimatedObject(&trail);
+                            if(trailBottom >= receptorY)
+                                Render_DrawAnimatedObject(&end);
+                        }
                         goto CLIPPED;
                     }
                     else {
@@ -897,8 +1052,10 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
                     }   
 
                     SKIP_CLIP:
-                    Render_DrawAnimatedObject(&trail);
-                    Render_DrawAnimatedObject(&end); 
+                    if(!fullyAbove) {
+                        Render_DrawAnimatedObject(&trail);
+                        Render_DrawAnimatedObject(&end);
+                    }
                     CLIPPED:
                 }
 
@@ -908,12 +1065,14 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
                         MissNote(note);
                     }
 
-                    // no need to update frame because it is not animated:) 
-                    Render_DrawAnimatedObject(&renderNote); 
+                    // no need to update frame because it is not animated:)
+                    // pula draw se totalmente fora da tela (economiza DrawTexturePro)
+                    if(!fullyAbove)
+                        Render_DrawAnimatedObject(&renderNote); 
                 }  
 
                 if(clearing) {
-                    if(songBeat.time > note->time + note->length + 0.167f && renderNote.position.y < -100) {
+                    if(songBeat.time > note->time + note->length + 0.200f && renderNote.position.y < -100) {
                         firstNote++; 
                     }
                     else 
@@ -938,12 +1097,32 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
             DrawRectangle(offsetX, healthbar.y + healthbarPadding, (int) middle + 1 /* fix 1px gap */, availableHeight, dadColor);
             DrawRectangle(offsetX + middle, healthbar.y + healthbarPadding, availableWidth * health, availableHeight, bfColor);
 
+            // tempo atual / total no cantinho (numeros, sem barra)
+            {
+                float t = songBeat.time;
+                if(t < 0) t = 0;
+                float total = GetMusicTimeLength(inst);
+                if(total < 0) total = 0;
+                char timeBuf[32];
+                snprintf(timeBuf, sizeof(timeBuf), "%d:%02d / %d:%02d",
+                    (int)(t / 60), (int)t % 60, (int)(total / 60), (int)total % 60);
+                const float tsh = 1.5f;
+                Vector2 tpos = {10 + tsh, 690};
+                DrawTextEx(vcrFont, timeBuf, tpos, 16, 1, BLACK);
+                tpos.x -= tsh;
+                tpos.y += tsh;
+                DrawTextEx(vcrFont, timeBuf, tpos, 16, 1, WHITE);
+            }
+
             if(game_options_showScore) {
-                const char* txt = TextFormat("Score: %d", score);
+                if(score != lastScoreDrawn) {
+                    snprintf(scoreBuf, sizeof(scoreBuf), "Score: %d", score);
+                    lastScoreDrawn = score;
+                }
                 const float shadow = 1.5f;
                 
-                DrawTextEx(vcrFont, txt, (Vector2) {healthbar.x + healthbar.width - 170 + shadow, healthbar.y + 30 - shadow}, 16, 1, BLACK); 
-                DrawTextEx(vcrFont, txt, (Vector2) {healthbar.x + healthbar.width - 170, healthbar.y + 30}, 16, 1, WHITE);
+                DrawTextEx(vcrFont, scoreBuf, (Vector2) {healthbar.x + healthbar.width - 170 + shadow, healthbar.y + 30 - shadow}, 16, 1, BLACK); 
+                DrawTextEx(vcrFont, scoreBuf, (Vector2) {healthbar.x + healthbar.width - 170, healthbar.y + 30}, 16, 1, WHITE);
             }
 
             Rectangle frameRect = {0, 0, 150, 150}; 
@@ -984,12 +1163,55 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
 }
 
 void PlayState_SetSong(char* song) {
-    __song__ = song;
+    snprintf(songDir, sizeof(songDir), "assets/songs/%s", song);
+}
+
+void PlayState_SetSongDir(const char* dir) {
+    strncpy(songDir, dir, sizeof(songDir) - 1);
+    songDir[sizeof(songDir) - 1] = 0;
+    returnToEditor = 0;
+    returnToWeek = 0;
+    diffSuf[0] = 0;
+    overrideP2[0] = 0;
+}
+
+// mesma coisa sem zerar flags (pro LoadingState nao matar campanha/editor)
+void PlayState_SetSongDirKeep(const char* dir) {
+    strncpy(songDir, dir, sizeof(songDir) - 1);
+    songDir[sizeof(songDir) - 1] = 0;
+}
+
+void PlayState_SetReturnEditor(char on) {
+    returnToEditor = on;
+}
+
+void PlayState_SetReturnWeek(char on) {
+    returnToWeek = on;
+}
+
+void PlayState_SetDiff(const char* diff) {
+    if(diff != NULL)
+        strncpy(diffSuf, diff, sizeof(diffSuf) - 1);
+    else
+        diffSuf[0] = 0;
+    diffSuf[sizeof(diffSuf) - 1] = 0;
+}
+
+void PlayState_SetCharsOverride(const char* p2) {
+    if(p2 != NULL)
+        strncpy(overrideP2, p2, sizeof(overrideP2) - 1);
+    else
+        overrideP2[0] = 0;
+    overrideP2[sizeof(overrideP2) - 1] = 0;
+}
+
+int PlayState_GetScore(void) {
+    return score;
 }
 
 static void PlayState_Destroy([[maybe_unused]] RayScene* scene) {
     UnloadMusicStream(inst);
-    UnloadMusicStream(voices);
+    Voices_Unload();
     if(restarted) return;
 
     for(int i = 0; i < 3; i++)
@@ -1001,7 +1223,6 @@ static void PlayState_Destroy([[maybe_unused]] RayScene* scene) {
 
     free(notes);
     Song_Free(&song);
-    AnimationSet_FreeAll(&numFrames);
 
     UnloadTexture(dad.icon);
     UnloadTexture(bf.icon); 

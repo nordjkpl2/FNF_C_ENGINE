@@ -75,15 +75,15 @@ char DataNote_ShouldSpawn(DataNote* dataNote, float time, float speed) {
 }
 
 char Note_CanBeHit(Note* note, float time) {
-    return note->time > time - 0.167f && note->time < time + 0.167f;
+    return note->time > time - 0.200f && note->time < time + 0.200f;
 } 
 
 char Note_TooLate(Note* note, float time) {
-    return note->time <= time - 0.167f;
+    return note->time <= time - 0.200f;
 }
 
 char Note_TooEarly(Note* note, float time) {
-    return note->time >= time + 0.167;
+    return note->time >= time + 0.200f;
 }
 
 char Note_ShouldHold(Note* note, float time) {

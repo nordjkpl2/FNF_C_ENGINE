@@ -29,6 +29,11 @@ typedef struct {
 } Song;
 
 void Song_Parse(Song* song, const char* songDataPath);
+char Song_ParseJSON(Song* song, const char* jsonPath);
+void Song_LoadSong(Song* song, const char* songName);
+void Song_LoadSongFromDir(Song* song, const char* dirPath);
+void Song_LoadSongFromDirDiff(Song* song, const char* dirPath, const char* diff);
+char Song_HasChart(const char* dirPath);
 void Song_Free(Song* song);
 
 #endif

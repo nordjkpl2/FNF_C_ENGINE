@@ -14,14 +14,16 @@ static int targetFps;
 static char clearTexture; 
 
 Music gameMusic;
- 
+
 static char playingMusic;
+static float musicVolume = 1.0f;
+static float volOsdTimer = 0;
 
 void RayGame_SetMusic(const char* path, float volume, char looping) { 
     gameMusic = LoadMusicStream(path);
 
     PlayMusicStream(gameMusic);  
-    SetMusicVolume(gameMusic, volume);
+    SetMusicVolume(gameMusic, volume * musicVolume);
     gameMusic.looping = looping;
 
     playingMusic = 0;
@@ -38,6 +40,19 @@ void RayGame_ResetMusic() {
 
 void RayGame_ClearMusic() {
     UnloadMusicStream(gameMusic);
+}
+
+// volume geral das musicas (0 = mudo), vale pra atual e pras proximas
+void RayGame_BumpMusicVolume(float delta) {
+    musicVolume += delta;
+    if(musicVolume < 0) musicVolume = 0;
+    if(musicVolume > 1) musicVolume = 1;
+    SetMusicVolume(gameMusic, 0.3f * musicVolume);
+    volOsdTimer = 2.0f;
+}
+
+float RayGame_MusicVolumeLevel(void) {
+    return musicVolume;
 }
 
 // these are not really necessary, more for clarity ig
@@ -80,8 +95,7 @@ void RayGame_SetVsync(char on) {
         RayGame_SetFPS(game_options_fps);
     }
 }
-
-int RayGame_GetTargetFPS() {
+int RayGame_GetTargetFPS(void) {
     return targetFps;
 }
 
@@ -89,9 +103,13 @@ void RayGame_Start(const char* gameTitle) {
     ChangeDirectory(GetApplicationDirectory());
 
     clearTexture = 0; 
-
+    /* // ! Dimension Of Game Window 1280x720 */
     InitWindow(1280, 720, gameTitle); 
     InitAudioDevice();
+
+    // ESC is back-navigation in every scene (menu/freeplay/modding/pause),
+    // so it must not trigger window close. X button still closes.
+    SetExitKey(KEY_NULL);
 
     SetConfigFlags(FLAG_WINDOW_ALWAYS_RUN);
     SetWindowState(FLAG_WINDOW_RESIZABLE);   
@@ -121,6 +139,11 @@ void RayGame_GameLoop() {
         if(IsKeyPressed(KEY_F11))
             ToggleBorderlessWindowed();
 
+        if(IsKeyPressed(KEY_EQUAL) || IsKeyPressed(KEY_KP_ADD))
+            RayGame_BumpMusicVolume(0.1f);
+        if(IsKeyPressed(KEY_MINUS) || IsKeyPressed(KEY_KP_SUBTRACT))
+            RayGame_BumpMusicVolume(-0.1f);
+
         if(game.scene->functions.updateFunc != NULL)
             game.scene->functions.updateFunc(game.scene);
 
@@ -143,6 +166,11 @@ void RayGame_GameLoop() {
         DrawRectangle(width - barWidth, 0, barWidth, height, BLACK);
 
         DrawFPS(10, 3);
+
+        if(volOsdTimer > 0) {
+            volOsdTimer -= dt;
+            DrawText(TextFormat("VOLUME %d%%", (int)(musicVolume * 100)), 10, 26, 20, WHITE);
+        }
 
         EndDrawing();  
 

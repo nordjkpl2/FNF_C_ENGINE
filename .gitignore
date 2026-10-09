@@ -14,3 +14,7 @@ Desktop.ini
 # Outros
 build/
 dist/
+
+# Teste de Jogo
+assets/mods
+assets/weeks

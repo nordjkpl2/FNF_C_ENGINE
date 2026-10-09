@@ -74,8 +74,6 @@ static void MenuState_Create([[maybe_unused]] RayScene* scene) {
 
             Button_SetPosition(i);
         }
-
-        menuButtons[0].button.color = LIGHTGRAY;
     }
 } 
 
@@ -97,11 +95,15 @@ static void MenuState_Draw([[maybe_unused]] RayScene* scene) {
         }
         else if(IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
             newSelected++;
-            if(newSelected > 2)
-                newSelected = 2;
+            if(newSelected > 3)
+                newSelected = 3;
         }
         else if(IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE)) {
-            if(selectedButton == 1) {
+            if(selectedButton == 0) {
+                StoryState_SetScene();
+                return;
+            }
+            else if(selectedButton == 1) {
                 Freeplay_SetScene();
                 return; // do not execute all the rest!!!!
             }
@@ -109,20 +111,29 @@ static void MenuState_Draw([[maybe_unused]] RayScene* scene) {
                 OptionsMenu_SetScene();
                 return;
             }
+            else if(selectedButton == 3) {
+                RayGame_ToggleMusic(0);
+                ModdingState_SetScene();
+                return;
+            }
         }
 
         if(selectedButton != newSelected) {
-            MenuButton* oldSelected = menuButtons + selectedButton;
-            RayAnimatedObject* oldSelectedButton = &oldSelected->button;
+            if(selectedButton < 3) {
+                MenuButton* oldSelected = menuButtons + selectedButton;
+                RayAnimatedObject* oldSelectedButton = &oldSelected->button;
 
-            AnimatedObject_SetAnimation(oldSelectedButton, oldSelected->idle);
-            Button_SetPosition(selectedButton);
-            
-            MenuButton* newSelectedM = menuButtons + newSelected;
-            RayAnimatedObject* newSelectedButton = &newSelectedM->button;
+                AnimatedObject_SetAnimation(oldSelectedButton, oldSelected->idle);
+                Button_SetPosition(selectedButton);
+            }
 
-            AnimatedObject_SetAnimation(newSelectedButton, newSelectedM->selected);
-            Button_SetPosition(newSelected);
+            if(newSelected < 3) {
+                MenuButton* newSelectedM = menuButtons + newSelected;
+                RayAnimatedObject* newSelectedButton = &newSelectedM->button;
+
+                AnimatedObject_SetAnimation(newSelectedButton, newSelectedM->selected);
+                Button_SetPosition(newSelected);
+            }
 
             selectedButton = newSelected;
         }
@@ -141,6 +152,30 @@ static void MenuState_Draw([[maybe_unused]] RayScene* scene) {
             Render_DrawAnimatedObject(obj);
         }
         EndBlendMode();
+    }
+
+    // 4th item: MODDING (text, art comes later)
+    {
+        const char* label = "MODDING";
+        const int fontSize = 40;
+        const int shadow = 3;
+        Vector2 size = MeasureTextEx(mainFont, label, fontSize, 4);
+        Vector2 pos = {(1280 - size.x) / 2 + shadow, 655 + shadow};
+
+        Color fill = WHITE;
+        Color outline = BLACK;
+        if(selectedButton == 3) {
+            fill = (Color) {42, 209, 86, 255};
+            outline.a = 255;
+        } else {
+            fill.a = 150;
+            outline.a = 100;
+        }
+
+        DrawTextEx(mainFont, label, pos, fontSize, 4, outline);
+        pos.x -= shadow;
+        pos.y -= shadow;
+        DrawTextEx(mainFont, label, pos, fontSize, 4, fill);
     }
 
     Render_StopCamera();
