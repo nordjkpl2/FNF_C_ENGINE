@@ -5,7 +5,7 @@
 </div>
 
 <div align="center">
-  <img src=https://github.com/nordjkpl2/arquiv/blob/main/fnf2.png width="600"/>
+  <img src=https://github.com/nordjkpl2/arquiv/blob/main/fnf2.png width="200"/>
 </div>
 
 # ⚠️ This is Not A Comercial Product
