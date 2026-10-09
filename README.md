@@ -12,7 +12,7 @@
 
 original project created **Using:** C99 (1999) / **Fork:** C23 (2023) migrate to C2027 when to launch
 
-## Status: 0.3 / 1.0 (30%)
+## Status: 0.3.17171717 / 1.0 (30%)
 **Progress:** `██████░░░░░░░░░░░░░░ 30%`
 - [x] v0.1 - Basis
 - [x] v0.2 - Basis Functions
