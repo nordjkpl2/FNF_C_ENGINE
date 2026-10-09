@@ -11,5 +11,6 @@ original project created **Using:** C99 (1999) / **Fork:** C23 (2023) migrate to
 - [x] v0.1 - Basis
 - [x] v0.2 - Basis Functions
 - [x] v0.3 - Implementing Features Like the Chart Editor <Actual Version
+- [ ] v0.4 - additional things and interesting things
 - [ ] v0.5 - Tests and Adjusts
 - [ ] v1.0 - 1.0 Release
