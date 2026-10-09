@@ -4,7 +4,7 @@
 
 </div>
 
-<img src=https://github.com/nordjkpl2/arquiv/blob/main/fnf2.png width="1000"/>
+<img src=https://github.com/nordjkpl2/arquiv/blob/main/fnf2.png width="800"/>
 
 # ⚠️ This is Not A Comercial Product
 
