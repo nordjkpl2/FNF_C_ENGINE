@@ -1,10 +1,10 @@
 <div align="center">
-
-> In Making Process... I think I'll turn this into a mature engine
-
+  > In Making Process... I think I'll turn this into a mature engine
 </div>
 
-<img src=https://github.com/nordjkpl2/arquiv/blob/main/fnf2.png width="800"/>
+<div align="center">
+  <img src=https://github.com/nordjkpl2/arquiv/blob/main/fnf2.png width="600"/>
+</div>
 
 # ⚠️ This is Not A Comercial Product
 
