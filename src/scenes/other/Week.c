@@ -59,6 +59,15 @@ char Week_ParseFile(const char* path, const char* dir, const char* fileBase, Wee
     else
         StrCopy(out->title, sizeof(out->title), fileBase, "week");
 
+    // frase da week (mostra so se o json definir; Psych nao tem)
+    cJSON* jflavor = cJSON_GetObjectItem(root, "flavor");
+    if(!cJSON_IsString(jflavor))
+        jflavor = cJSON_GetObjectItem(root, "description");
+    if(cJSON_IsString(jflavor) && jflavor->valuestring[0] != 0)
+        StrCopy(out->flavor, sizeof(out->flavor), jflavor->valuestring, "");
+    else
+        out->flavor[0] = 0;
+
     cJSON* jsongs = cJSON_GetObjectItem(root, "songs");
     if(cJSON_IsArray(jsongs)) {
         int n = cJSON_GetArraySize(jsongs);

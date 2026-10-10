@@ -87,17 +87,15 @@ void Render_DefaultRGT(RayGraphicObject* obj);
 void Render_DefaultAnimated(RayAnimatedObject* obj);
 void Render_DefaultCamera(Camera2D* cam);
 
-RayGraphicObject* Render_NewRayGraphicObjects(int count);
-
 Texture2D Render_LoadTexture(const char* path);
 
 RayAnimationHandler AnimationSet_LoadAnimations(const char* animset, Texture2D image);
-int AnimationSet_FindAnimation(RayAnimationHandler* animations, const char* animationName);
+int AnimationSet_FindAnimation(const RayAnimationHandler* animations, const char* animationName);
 void AnimationSet_FreeAnimations(RayAnimationHandler* animations);
 void AnimationSet_FreeAll(RayAnimationHandler* animations);
 void AnimationSet_SetAnimationOffset(RayAnimationHandler* animations, int animationIndex, Vector2 offset);
 void AnimationSet_SetAnimationData(RayAnimationHandler* animations, int animationIndex, int fps, char looped);
-float AnimationSet_AnimationLength(RayAnimationHandler* animations, int animIndex);
+float AnimationSet_AnimationLength(const RayAnimationHandler* animations, int animIndex);
 
 Vector2 GraphicObject_Sizes(RayGraphicObject* obj);
 
@@ -110,7 +108,8 @@ void Render_DrawGraphicObject(RayGraphicObject* obj);
 void Render_DrawAnimatedObject(RayAnimatedObject* obj);
 
 // this macro exists for the simple cases you know
-#define AnimationSet_SetData(vName, animSet, animName, fps, isLooped, animOffsetX, animOffsetY) vName = AnimationSet_FindAnimation(&animSet, animName); AnimationSet_SetAnimationData(&animSet, vName, fps, isLooped); AnimationSet_SetAnimationOffset(&animSet, vName, (Vector2) {animOffsetX, animOffsetY});
+// guarda vName<0: FindAnimation falhou (ex. char custom sem a anim) -> nao escreve fora do array
+#define AnimationSet_SetData(vName, animSet, animName, fps, isLooped, animOffsetX, animOffsetY) do { vName = AnimationSet_FindAnimation(&animSet, animName); if(vName >= 0) { AnimationSet_SetAnimationData(&animSet, vName, fps, isLooped); AnimationSet_SetAnimationOffset(&animSet, vName, (Vector2) {animOffsetX, animOffsetY}); } } while(0)
 
 
 #endif

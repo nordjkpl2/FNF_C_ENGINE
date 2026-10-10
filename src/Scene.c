@@ -1,4 +1,3 @@
-#include "std.h"
 #include "Scene.h"
 
 void RayScene_Create(RayScene* scene, RaySceneFunctions functions) { 

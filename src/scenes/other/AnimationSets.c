@@ -1,16 +1,15 @@
 #include "scenes/AllScenes.h" 
+#include "Log.h"
 #include <limits.h>
 
-#define IERR {puts("\ninvalid data");exit(1);}
+#define IERR Log_Fatal("invalid data");
 #define CHECK_LEN(readOperation, expectedSize) if(readOperation != expectedSize) IERR
 
 RayAnimationHandler AnimationSet_LoadAnimations(const char* animset, Texture2D image) {  
     FILE *fileptr = fopen(animset, "rb");
 
-    if(fileptr == NULL) {
-        printf("could not open file %s\n", animset);
-        exit(1);
-    } 
+    if(fileptr == NULL)
+        Log_FatalF("could not open file %s", animset);
 
     int animationCount;
     CHECK_LEN(fread(&animationCount, sizeof(int), 1, fileptr), 1) 
@@ -56,8 +55,10 @@ RayAnimationHandler AnimationSet_LoadAnimations(const char* animset, Texture2D i
     };
 }
 
-float AnimationSet_AnimationLength(RayAnimationHandler* animations, int animIndex) {
-    RayAnimation* animation = animations->animations + animIndex;
+float AnimationSet_AnimationLength(const RayAnimationHandler* animations, int animIndex) {
+    if(animIndex < 0 || animIndex >= animations->animationCount)
+        return 1.0f; // indice invalido: nunca travar timer (ex. deadTime da morte)
+    const RayAnimation* animation = animations->animations + animIndex;
     return (1.0f / animation->fps) * animation->frameCount;
 }
 
@@ -72,9 +73,9 @@ void AnimationSet_SetAnimationOffset(RayAnimationHandler* animations, int animat
     animation->animationOffset = offset;
 }
 
-int AnimationSet_FindAnimation(RayAnimationHandler* animations, const char* animationName) {
+int AnimationSet_FindAnimation(const RayAnimationHandler* animations, const char* animationName) {
     for(int i = 0; i < animations->animationCount; i++) {
-        RayAnimation* anim = animations->animations + i;
+        const RayAnimation* anim = animations->animations + i;
         if(strcmp(anim->name, animationName) == 0)
             return i;
     }

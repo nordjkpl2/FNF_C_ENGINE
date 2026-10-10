@@ -9,7 +9,7 @@ void Render_SetCamera(Camera2D* camera) {
     targetCamera = camera; 
     
     targetCamera->zoom *= RayGame_ZoomFactor();
-    targetCamera->offset = (Vector2) {RayGame_WindowWidth() / 2, RayGame_WindowHeight() / 2};
+    targetCamera->offset = (Vector2) {RayGame_CanvasWidth() / 2, RayGame_CanvasHeight() / 2};
 
     BeginMode2D(*camera);  
 }
@@ -137,11 +137,6 @@ void AnimatedObject_SetAnimation(RayAnimatedObject* obj, int animation) {
         .currentFrame = 0,
         .time = 0
     };
-}
-
-RayGraphicObject* Render_NewRayGraphicObjects(int count) { 
-    RayGraphicObject* arr = calloc(count, sizeof(RayGraphicObject));
-    return arr;
 }
 
 Texture2D Render_LoadTexture(const char* path) { 

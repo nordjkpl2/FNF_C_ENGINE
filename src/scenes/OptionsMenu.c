@@ -27,14 +27,22 @@ typedef enum {
     OPTION_VSYNC,
     __OPTION_HEADER_GAMEPLAY,
     OPTION_KEYBOARD_SCHEME,
+    OPTION_SCROLL_STYLE,
+    OPTION_GHOST,
+    OPTION_HITSOUND,
     __OPTION_HEADER_UI,
     OPTION_SHOW_SCORE,
     OPTION_BOPPING_ICONS,
     OPTION_ZOOMFACTOR_UI,
-    OPTION_ZOOMFACTOR_GAME
+    OPTION_ZOOMFACTOR_GAME,
+    OPTION_FILL_SCREEN,
+    OPTION_BOTPLAY
 } OPTION_ORDER;
 
-#define OPTION_COUNT 11
+#define OPTION_COUNT 16
+
+static const char* ghost_names[3] = {"On", "50/50", "Off"};
+static const char* scroll_names[3] = {"Normal", "Downscroll", "Middlescroll"};
 
 // THIS HAS TO HAVE THE SAME ORDER AS THE OPTION_ORDER ENUM
 static Option options[OPTION_COUNT] = {
@@ -71,6 +79,26 @@ static Option options[OPTION_COUNT] = {
         .min    = 0
     },
     {
+        .text   = "Scroll Style",
+        .type   = OPTION_VALUE_LIST,
+        .options = scroll_names,
+        .step   = 1,
+        .max    = 2,
+        .min    = 0
+    },
+    {
+        .text   = "Ghost Tapping",
+        .type   = OPTION_VALUE_LIST,
+        .options = ghost_names,
+        .step   = 1,
+        .max    = 2,
+        .min    = 0
+    },
+    {
+        .text   = "Hit Sound",
+        .type   = OPTION_VALUE_BOOL,
+    },
+    {
         .text   = "[ Other Options ]",
         .type   = OPTION_VALUE_HEADER
     },
@@ -98,10 +126,17 @@ static Option options[OPTION_COUNT] = {
         .step   = 0.1f, 
         .altStep = 1
     },
+    {
+        .text   = "Stretch",
+        .type   = OPTION_VALUE_BOOL
+    },
+    {
+        .text   = "Botplay",
+        .type   = OPTION_VALUE_BOOL
+    },
 };
 
 static float offset; 
-static float holdTime; 
 static int currentOption;
 
 static Camera2D cam;
@@ -127,6 +162,10 @@ static void ChangedNumValue() {
     }
     else if(currentOption == OPTION_KEYBOARD_SCHEME)
         game_options_scheme = (int) option->value;
+    else if(currentOption == OPTION_SCROLL_STYLE)
+        game_options_scroll = (char)(int) option->value;
+    else if(currentOption == OPTION_GHOST)
+        game_options_ghost = (char)(int) option->value;
     else if(currentOption == OPTION_ZOOMFACTOR_GAME)
         game_options_zoomFactorGAME = option->value;
     else if(currentOption == OPTION_ZOOMFACTOR_UI)
@@ -144,6 +183,10 @@ static void ChangedBoolValue() {
         game_options_showScore = !game_options_showScore;
     else if(currentOption == OPTION_BOPPING_ICONS) 
         game_options_bopIcons = !game_options_bopIcons;
+    else if(currentOption == OPTION_FILL_SCREEN)
+        game_options_fillScreen = !game_options_fillScreen;
+    else if(currentOption == OPTION_BOTPLAY)
+        game_options_botplay = !game_options_botplay;
     else if(currentOption == OPTION_VSYNC) {
         RayGame_SetVsync(option->value); 
         
@@ -156,11 +199,11 @@ static void ChangedBoolValue() {
             options[OPTION_FPS].active = !options[OPTION_UNCAPPED_FPS].value;
         }
     }
+    else if(currentOption == OPTION_HITSOUND)
+        game_options_hitSound = !game_options_hitSound;
 }
 
 static void OptionsMenu_Create([[maybe_unused]] RayScene* scene) {
-    holdTime = 0;
-    
     Render_DefaultRGT(&bg);
 
     bg.objType = RGT_IMAGE;
@@ -184,8 +227,13 @@ static void OptionsMenu_Create([[maybe_unused]] RayScene* scene) {
         options[OPTION_BOPPING_ICONS].value = game_options_bopIcons;
         options[OPTION_VSYNC].value = game_options_vsync;
         options[OPTION_KEYBOARD_SCHEME].value = game_options_scheme;
+        options[OPTION_SCROLL_STYLE].value = game_options_scroll;
+        options[OPTION_GHOST].value = game_options_ghost;
+        options[OPTION_HITSOUND].value = game_options_hitSound;
         options[OPTION_ZOOMFACTOR_GAME].value = game_options_zoomFactorGAME;
         options[OPTION_ZOOMFACTOR_UI].value = game_options_zoomFactorUI;
+        options[OPTION_FILL_SCREEN].value = game_options_fillScreen;
+        options[OPTION_BOTPLAY].value = game_options_botplay;
     }
 }
 
@@ -216,7 +264,6 @@ static void OptionsMenu_Draw([[maybe_unused]] RayScene* scene) {
             goto __SOMETHING__GOTO_INSTRUCTION_01_CANNOT_USE_THIS_OPTION;
 
         if(IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
-            holdTime = 0; // what the dog doin
             if(option->type == OPTION_VALUE_BOOL) {
                 option->value = !option->value; 
                 ChangedBoolValue();

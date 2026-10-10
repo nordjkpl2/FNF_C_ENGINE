@@ -1,10 +1,13 @@
 #ifndef SONG_H
 #define SONG_H
 
+#include <stdint.h>
+
 typedef struct {
-    int id; // sign based instead of that weird wrapping id thing fnf does
     float time;
-    float len; 
+    int16_t id;   // sign = mustHit; |id| = lane 1..4 (0 = invalid)
+    int16_t _pad; // alinhamento p/ float len
+    float len;
 } DataNote;
 
 typedef struct {
@@ -20,6 +23,8 @@ typedef struct {
     char player1[32];
     char player2[32];
     char stage[32];
+    char gfVersion[32]; // Psych: "gf" padrao, "nogf"/"" = sem girlfriend
+    char noteSkin[32];  // custom note skin (mod > global default), vazio = default
 
     Section* sections;
     int sectionCount; 

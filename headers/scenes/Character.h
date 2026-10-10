@@ -7,6 +7,7 @@ typedef struct {
     RayAnimatedObject object;
     Vector2 cameraOffset;
     Texture2D icon;
+    Color healthColor;
 
     float idleTimer; 
     char idled;
@@ -27,6 +28,10 @@ typedef struct {
     char f; 
     int anims[2]; // left, right or right, left doesnt matter!!!!
 } Girlfriend;
+
+// raiz do mod da musica atual (p/ resolver artes do mod antes do global).
+// Chamar uma vez por load de musica (PlayState) antes dos Character_Load.
+void Character_SetSongDir(const char* songDir);
 
 void Character_Load(Character* character, char* characterName, char isDad);
 void Character_LoadDeathAnimations(Character* character, char* characterName, int* anims);

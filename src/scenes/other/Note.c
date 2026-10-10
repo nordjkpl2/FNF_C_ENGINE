@@ -1,33 +1,62 @@
 #include "scenes/Note.h" 
 #include "scenes/AllScenes.h"
 
-#define FIND_ANIMS(arr, L, D, U, R) {\
-        arr[0] = AnimationSet_FindAnimation(&anims, L);\
-        arr[1] = AnimationSet_FindAnimation(&anims, D);\
-        arr[2] = AnimationSet_FindAnimation(&anims, U);\
-        arr[3] = AnimationSet_FindAnimation(&anims, R);\
+#define FIND_ANIMS(arr, L, D, U, R, anims) {\
+        arr[0] = AnimationSet_FindAnimation(anims, L);\
+        arr[1] = AnimationSet_FindAnimation(anims, D);\
+        arr[2] = AnimationSet_FindAnimation(anims, U);\
+        arr[3] = AnimationSet_FindAnimation(anims, R);\
     }\
 
 static int idles[4];
 static int presses[4];
 static int confirm[4];
-static int notes[4];
+static int notesAnim[4];
 static int trails[4];
 static int ends[4];
 
 static char ready = 0;
+static const RayAnimationHandler* currentSkin = NULL;
+static const RayAnimationHandler* defaultSkinPtr = NULL;
 
-void NoteStuff_LoadAnimations() {
-    RayAnimationHandler anims = Cache_GetNoteAnimations();
+// janela de hit: easy 0.240 / normal 0.200 / hard 0.180. 1 set por musica, 0 no hot path.
+static float noteWindow = 0.400f; // +200ms grace para sustain/reação
 
-    FIND_ANIMS(idles, "arrowLEFT", "arrowDOWN", "arrowUP", "arrowRIGHT");
-    FIND_ANIMS(presses, "left press", "down press", "up press", "right press");
-    FIND_ANIMS(confirm, "left confirm", "down confirm", "up confirm", "right confirm");
-    FIND_ANIMS(notes, "purple", "blue", "green", "red");
-    FIND_ANIMS(trails, "purple hold piece", "blue hold piece", "green hold piece", "red hold piece");
-    FIND_ANIMS(ends, "purple hold end", "blue hold end", "green hold end", "red hold end");
+void Note_SetWindow(float w) {
+    if(w < 0.05f) w = 0.05f;
+    if(w > 0.50f) w = 0.50f;
+    noteWindow = w;
+}
+
+float Note_Window(void) {
+    return noteWindow;
+}
+
+void Note_SetCurrentSkin(const RayAnimationHandler* skin) {
+    currentSkin = skin;
+    ready = 0; // force reload animations for new skin
+}
+
+const RayAnimationHandler* Note_GetCurrentSkin(void) {
+    if(currentSkin) return currentSkin;
+    if(!defaultSkinPtr) defaultSkinPtr = Cache_GetDefaultNoteSkinPtr();
+    return defaultSkinPtr;
+}
+
+static void NoteStuff_LoadAnimationsInternal(const RayAnimationHandler* anims) {
+    FIND_ANIMS(idles, "arrowLEFT", "arrowDOWN", "arrowUP", "arrowRIGHT", anims);
+    FIND_ANIMS(presses, "left press", "down press", "up press", "right press", anims);
+    FIND_ANIMS(confirm, "left confirm", "down confirm", "up confirm", "right confirm", anims);
+    FIND_ANIMS(notesAnim, "purple", "blue", "green", "red", anims);
+    FIND_ANIMS(trails, "purple hold piece", "blue hold piece", "green hold piece", "red hold piece", anims);
+    FIND_ANIMS(ends, "purple hold end", "blue hold end", "green hold end", "red hold end", anims);
 
     ready = 1;
+}
+
+void NoteStuff_LoadAnimations(void) {
+    const RayAnimationHandler* anims = Note_GetCurrentSkin();
+    NoteStuff_LoadAnimationsInternal(anims);
 }
 
 void StrumNote_Load(StrumNote* note, int id) {
@@ -36,7 +65,8 @@ void StrumNote_Load(StrumNote* note, int id) {
 
     Render_DefaultAnimated(&note->object);
 
-    note->object.animationSet = Cache_GetNoteAnimations(); 
+    const RayAnimationHandler* anims = Note_GetCurrentSkin();
+    note->object.animationSet = *anims;
     note->object.scaleX = 0.7f;
     note->object.scaleY = 0.7f; 
     note->id = id;
@@ -70,20 +100,16 @@ void Note_Load(Note* note, DataNote* dataNote) {
     note->id--;  
 }
 
-char DataNote_ShouldSpawn(DataNote* dataNote, float time, float speed) {
-    return dataNote->time / 1000.0f - time < 1.8f / speed;
-}
-
 char Note_CanBeHit(Note* note, float time) {
-    return note->time > time - 0.200f && note->time < time + 0.200f;
+    return note->time > time - noteWindow && note->time < time + noteWindow;
 } 
 
 char Note_TooLate(Note* note, float time) {
-    return note->time <= time - 0.200f;
+    return note->time <= time - noteWindow;
 }
 
 char Note_TooEarly(Note* note, float time) {
-    return note->time >= time + 0.200f;
+    return note->time >= time + noteWindow;
 }
 
 char Note_ShouldHold(Note* note, float time) {
@@ -91,7 +117,7 @@ char Note_ShouldHold(Note* note, float time) {
 }
  
 int Note_Animation(int id) {
-    return notes[id];
+    return notesAnim[id];
 }
 
 int Note_TrailAnimation(int id) {

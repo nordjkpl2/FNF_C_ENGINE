@@ -1,2 +1,2 @@
 ~ $ cd "D:/dev/fnf c engine"
-gcc main.c $(find src -name "*.c") $(find lib -name "*.c") -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -O3 -march=x86-64-v2 -flto -funroll-loops -fomit-frame-pointer
+gcc main.c $(find src -name "*.c") $(find lib -name "*.c") -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -flto -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O1 -s -DNDEBUG -fomit-frame-pointer

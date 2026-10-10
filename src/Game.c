@@ -1,6 +1,7 @@
 #include "std.h" 
 #include "Game.h"
 #include "GameData.h"
+#include "Log.h"
  
 RayGame game; 
 
@@ -18,6 +19,8 @@ Music gameMusic;
 static char playingMusic;
 static float musicVolume = 1.0f;
 static float volOsdTimer = 0;
+static RenderTexture2D stretchTarget;
+static char stretchReady = 0;
 
 void RayGame_SetMusic(const char* path, float volume, char looping) { 
     gameMusic = LoadMusicStream(path);
@@ -38,10 +41,6 @@ void RayGame_ResetMusic() {
     PlayMusicStream(gameMusic);
 }
 
-void RayGame_ClearMusic() {
-    UnloadMusicStream(gameMusic);
-}
-
 // volume geral das musicas (0 = mudo), vale pra atual e pras proximas
 void RayGame_BumpMusicVolume(float delta) {
     musicVolume += delta;
@@ -60,12 +59,13 @@ float RayGame_ZoomFactor() {
     return zoom;
 }
 
-int RayGame_WindowWidth() {
-    return width;
+// tamanho logico desenhado (stretch rende 1280x720 fixo)
+int RayGame_CanvasWidth(void) {
+    return game_options_fillScreen ? 1280 : width;
 }
 
-int RayGame_WindowHeight() {
-    return height;
+int RayGame_CanvasHeight(void) {
+    return game_options_fillScreen ? 720 : height;
 }
 
 void RayGame_SetFPS(int fps) { 
@@ -115,22 +115,37 @@ void RayGame_Start(const char* gameTitle) {
     SetWindowState(FLAG_WINDOW_RESIZABLE);   
 
     GameData_Start();
-    RayGame_SetVsync(game_options_vsync); 
+    RayGame_SetVsync(game_options_vsync);
+
+    stretchTarget = LoadRenderTexture(1280, 720);
+    stretchReady = 1;
+}
+
+static void DrawOverlay(void) {
+    DrawFPS(10, 3);
+
+    if(volOsdTimer > 0) {
+        volOsdTimer -= dt;
+        DrawText(TextFormat("VOLUME %d%%", (int)(musicVolume * 100)), 10, 26, 20, WHITE);
+    }
 }
 
 
 void RayGame_GameLoop() {
-    if(game.scene == NULL) {
-        puts("\n[ ERROR ] game is not using any scene!");
-        exit(1);
-    } 
+    if(game.scene == NULL)
+        Log_Fatal("[ ERROR ] game is not using any scene!");
     // close the game only if the x button was pressed 
     while(!WindowShouldClose() || IsKeyPressed(KEY_ESCAPE)) {   
         dt = GetFrameTime(); 
 
         width = GetScreenWidth();
         height = GetScreenHeight();
-        zoom = fminf(width / 1280.0f, height / 720.0f); 
+        // stretch rende 1280x720 e espreme (zoom 1, sem corte);
+        // senao mantem proporcao com barras
+        if(game_options_fillScreen)
+            zoom = 1.0f;
+        else
+            zoom = fminf(width / 1280.0f, height / 720.0f); 
 
         // we do not want the game to move too fast if we are tabed out or something
         if(dt > frametime)
@@ -147,32 +162,52 @@ void RayGame_GameLoop() {
         if(game.scene->functions.updateFunc != NULL)
             game.scene->functions.updateFunc(game.scene);
 
-        BeginDrawing();
+        if(game_options_fillScreen && stretchReady) {
+            BeginTextureMode(stretchTarget);
 
-        if(clearTexture) {
+            if(clearTexture) {
+                ClearBackground(BLACK);
+                clearTexture = 0;
+            }
+
+            if(game.scene->functions.drawFunc != NULL && IsWindowFocused())
+                game.scene->functions.drawFunc(game.scene);
+
+            EndTextureMode();
+
+            BeginDrawing();
             ClearBackground(BLACK);
-            clearTexture = 0;
-        } 
-
-        if(game.scene->functions.drawFunc != NULL && IsWindowFocused())
-            game.scene->functions.drawFunc(game.scene);
-        
-        int barHeight = (height - 720 * zoom) / 2;
-        DrawRectangle(0, 0, width, barHeight, BLACK);
-        DrawRectangle(0, (int) height - barHeight, width, barHeight, BLACK);
-
-        int barWidth = (width - 1280 * zoom) / 2;
-        DrawRectangle(0, 0, barWidth, height, BLACK);
-        DrawRectangle(width - barWidth, 0, barWidth, height, BLACK);
-
-        DrawFPS(10, 3);
-
-        if(volOsdTimer > 0) {
-            volOsdTimer -= dt;
-            DrawText(TextFormat("VOLUME %d%%", (int)(musicVolume * 100)), 10, 26, 20, WHITE);
+            DrawTexturePro(stretchTarget.texture,
+                (Rectangle) {0, 0, 1280, -720},
+                (Rectangle) {0, 0, (float) width, (float) height},
+                (Vector2) {0, 0}, 0, WHITE);
+            DrawOverlay();
+            EndDrawing();
         }
+        else {
+            BeginDrawing();
 
-        EndDrawing();  
+            if(clearTexture) {
+                ClearBackground(BLACK);
+                clearTexture = 0;
+            }
+
+            if(game.scene->functions.drawFunc != NULL && IsWindowFocused())
+                game.scene->functions.drawFunc(game.scene);
+
+            {
+                int barHeight = (height - 720 * zoom) / 2;
+                DrawRectangle(0, 0, width, barHeight, BLACK);
+                DrawRectangle(0, (int) height - barHeight, width, barHeight, BLACK);
+
+                int barWidth = (width - 1280 * zoom) / 2;
+                DrawRectangle(0, 0, barWidth, height, BLACK);
+                DrawRectangle(width - barWidth, 0, barWidth, height, BLACK);
+            }
+
+            DrawOverlay();
+            EndDrawing();
+        }
 
         if(playingMusic)
             UpdateMusicStream(gameMusic);
@@ -193,6 +228,8 @@ void RayGame_ClearScene() {
 
 void RayGame_Destroy() { 
     UnloadMusicStream(gameMusic);
+    if(stretchReady)
+        UnloadRenderTexture(stretchTarget);
     RayScene_Destroy(game.scene);  
     GameData_Stop();
     CloseAudioDevice();

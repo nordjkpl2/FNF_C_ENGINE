@@ -11,6 +11,7 @@ typedef struct {
 typedef struct {
     char file[64];   // nome base (sem .json)
     char title[64];  // storyName > weekName > file
+    char flavor[192]; // "flavor"/"description" opcional (so mostra se tiver)
     char dir[256];   // pasta da week (assets/weeks ou assets/mods/X/weeks)
     char fromMods;
     WeekSong songs[WEEK_MAX_SONGS];

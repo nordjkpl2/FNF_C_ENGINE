@@ -8,12 +8,16 @@ static WeekEntry* weeks = NULL;
 static int weekCount = 0;
 static int selected = 0;
 static float offset = 0;
-static int diffIdx = 1; // 0 easy, 1 normal, 2 hard
 static char delConfirm = 0;
 static char statusText[128];
 static float statusTimer = 0;
 
-static const char* DIFF_NAMES[3] = {"EASY", "NORMAL", "HARD"};
+// icone grande do oponente da week (1 textura, troca so na selecao)
+static Texture2D weekIcon;
+static char weekIconHas = 0;
+static int weekIconIdx = -1;
+
+static float discAngle = 0;
 
 static RayGraphicObject bg;
 static Camera2D cam;
@@ -27,18 +31,93 @@ static void StatusMsg(const char* m) {
     statusTimer = 3.0f;
 }
 
+// raiz do mod a partir do dir da week (".../weeks" -> mod; base -> "").
+// Normaliza '\' (scan devolve misto no Windows).
+static void Story_ModRoot(const char* weekDir, char root[256]) {
+    root[0] = 0;
+    if(weekDir == NULL)
+        return;
+    char norm[300];
+    size_t L = strlen(weekDir);
+    if(L >= sizeof(norm))
+        L = sizeof(norm) - 1;
+    for(size_t i = 0; i < L; i++)
+        norm[i] = (weekDir[i] == '\\') ? '/' : weekDir[i];
+    norm[L] = 0;
+    size_t n = (L >= 6 && strcmp(norm + L - 6, "/weeks") == 0) ? L - 6 : 0;
+    if(n == 0 || n >= 256)
+        return;
+    memcpy(root, norm, n);
+    root[n] = 0;
+}
+
+// <mod>/images/icons/<opp>.png, depois global. 1 = achou em out.
+static char Story_IconPath(const char* weekDir, const char* opp, char out[300]) {
+    if(opp == NULL || opp[0] == 0)
+        return 0;
+    if(strchr(opp, '/') != NULL || strchr(opp, '\\') != NULL || strstr(opp, "..") != NULL)
+        return 0;
+    char root[256];
+    Story_ModRoot(weekDir, root);
+    char p[300];
+    FILE* f;
+    if(root[0] != 0) {
+        snprintf(p, sizeof(p), "%s/images/icons/%s.png", root, opp);
+        f = fopen(p, "rb");
+        if(f != NULL) {
+            fclose(f);
+            strncpy(out, p, 299);
+            out[299] = 0;
+            return 1;
+        }
+    }
+    snprintf(p, sizeof(p), "assets/images/icons/%s.png", opp);
+    f = fopen(p, "rb");
+    if(f != NULL) {
+        fclose(f);
+        strncpy(out, p, 299);
+        out[299] = 0;
+        return 1;
+    }
+    return 0;
+}
+
+static void Story_UnloadIcon(void) {
+    if(weekIconHas)
+        UnloadTexture(weekIcon);
+    weekIconHas = 0;
+    weekIconIdx = -1;
+}
+
+// (re)carrega o icone do oponente da week selecionada (1 tex, so na troca)
+static void Story_LoadWeekIcon(void) {
+    if(weekIconIdx == selected && weekIconHas)
+        return;
+    Story_UnloadIcon();
+    if(selected < 0 || selected >= weekCount)
+        return;
+    WeekEntry* w = weeks + selected;
+    const char* opp = (w->songCount > 0 && w->songs[0].character[0] != 0) ? w->songs[0].character : "dad";
+    char ip[300];
+    if(!Story_IconPath(w->dir, opp, ip))
+        return;
+    weekIcon = Render_LoadTexture(ip);
+    weekIconHas = 1;
+    weekIconIdx = selected;
+}
+
 static void Story_StartWeek(void) {
     WeekEntry* w = weeks + selected;
-    WeekRun_Start(w, diffIdx);
+    WeekRun_Start(w, 1); // sem seletor: sempre normal (mod nao gira em torno de diff)
     const char* dir = WeekRun_Dir();
     if(dir[0] == 0) {
         const char* miss = WeekRun_Missing();
         if(miss[0] != 0) {
             char b[128];
-            snprintf(b, sizeof(b), "MUSICA NAO ACHADA: %s", miss);
+            snprintf(b, sizeof(b), "MISSING SONG: %s", miss);
             StatusMsg(b);
         } else {
-            StatusMsg("WEEK VAZIA");
+            StatusMsg("EMPTY WEEK");
         }
         WeekRun_Stop();
         return;
@@ -71,12 +150,15 @@ static void StoryState_Create([[maybe_unused]] RayScene* scene) {
     selected = 0;
     offset = 0;
     delConfirm = 0;
+    discAngle = 0;
     statusText[0] = 0;
     statusTimer = 0;
+    Story_UnloadIcon();
+    Story_LoadWeekIcon();
 
     if(WeekRun_Missing()[0] != 0) {
         char b[128];
-        snprintf(b, sizeof(b), "PULADA (sem pasta): %s", WeekRun_Missing());
+        snprintf(b, sizeof(b), "SKIPPED (missing): %s", WeekRun_Missing());
         StatusMsg(b);
     }
 }
@@ -88,15 +170,17 @@ static void StoryState_Draw([[maybe_unused]] RayScene* scene) {
     if(delConfirm) {
         if(IsKeyPressed(KEY_Y)) {
             if(Week_Delete(weeks + selected))
-                StatusMsg("APAGADA");
+                StatusMsg("DELETED");
             else
-                StatusMsg("NAO APAGOU");
+                StatusMsg("NOT DELETED");
             WeekList_Free(weeks);
             weeks = NULL;
             weekCount = WeekList_Scan(&weeks);
             if(selected >= weekCount) selected = weekCount - 1;
             if(selected < 0) selected = 0;
             delConfirm = 0;
+            Story_UnloadIcon();
+            Story_LoadWeekIcon();
             return;
         }
         if(IsKeyPressed(KEY_N) || IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_BACKSPACE)) {
@@ -114,21 +198,15 @@ static void StoryState_Draw([[maybe_unused]] RayScene* scene) {
                 selected++;
                 if(selected >= weekCount)
                     selected = 0;
+                Story_LoadWeekIcon();
             }
             if(IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
                 selected--;
                 if(selected < 0)
                     selected = weekCount - 1;
+                Story_LoadWeekIcon();
             }
-            if(IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_A)) {
-                diffIdx--;
-                if(diffIdx < 0) diffIdx = 2;
-            }
-            if(IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D)) {
-                diffIdx++;
-                if(diffIdx > 2) diffIdx = 0;
-            }
-            if(IsKeyPressed(KEY_DELETE)) {
+            if(IsKeyPressed(KEY_DELETE) || IsKeyPressed(KEY_SLASH) || IsKeyPressed(KEY_KP_DIVIDE)) {
                 delConfirm = 1;
                 return;
             }
@@ -149,15 +227,33 @@ static void StoryState_Draw([[maybe_unused]] RayScene* scene) {
     Render_SetCamera(&cam);
     Render_DrawGraphicObject(&bg);
 
+    // disco procedural embaixo dos textos: 0 disco, 0 VRAM, +5 draws. Gira lento atras.
+    // icone da week por baixo do disco (bordas aparecendo em volta).
+    {
+        if(weekIconHas) {
+            DrawTexturePro(weekIcon, (Rectangle) {0, 0, 150, 150},
+                (Rectangle) {1055 - 100, 575 - 100, 200, 200}, VECTOR_ZERO, 0, WHITE);
+        }
+        discAngle += RayGame_DeltaTime() * 0.6f;
+        Vector2 c = {1055, 575};
+        DrawCircleV(c, 135, (Color){16, 16, 24, 255});
+        DrawCircleLines((int)c.x, (int)c.y, 110, (Color){60, 60, 80, 255});
+        DrawCircleLines((int)c.x, (int)c.y, 78, (Color){60, 60, 80, 255});
+        DrawCircleV(c, 46, (Color){130, 90, 170, 255});
+        DrawCircleV(c, 10, (Color){220, 220, 230, 255});
+        Vector2 tip = {c.x + 126 * cosf(discAngle), c.y + 126 * sinf(discAngle)};
+        DrawLineEx(c, tip, 5, (Color){255, 255, 255, 40});
+    }
+
     if(weekCount == 0) {
-        DrawTextEx(mainFont, "SEM WEEKS - poe em assets/weeks/", (Vector2) {150, 720 / 2}, 32, 2, fontColor);
+        DrawTextEx(mainFont, "NO WEEKS - add to assets/weeks/", (Vector2) {150, 720 / 2}, 32, 2, fontColor);
         Render_StopCamera();
         return;
     }
 
     if(delConfirm) {
         char b[128];
-        snprintf(b, sizeof(b), "APAGAR %s?  Y = sim   N = nao", weeks[selected].title);
+        snprintf(b, sizeof(b), "DELETE %s?  Y = yes   N = no", weeks[selected].title);
         Vector2 s = MeasureTextEx(mainFont, b, 40, 4);
         DrawTextEx(mainFont, b, (Vector2) {1280 / 2 - s.x / 2, 720 / 2 - 20}, 40, 4, (Color) {255, 80, 80, 255});
         Render_StopCamera();
@@ -182,13 +278,51 @@ static void StoryState_Draw([[maybe_unused]] RayScene* scene) {
         pos.x -= shadow;
         pos.y -= shadow;
         DrawTextEx(mainFont, weeks[i].title, pos, fontSize, 4, fontColor);
+
+        // selecionadores do item: ">" amarelo + agulha verde (4 draws, sem string)
+        if(selected == i) {
+            Vector2 mp = {pos.x - 56, pos.y};
+            DrawTextEx(mainFont, ">", (Vector2) {mp.x + shadow, mp.y + shadow}, fontSize, 4, outlineColor);
+            DrawTextEx(mainFont, ">", mp, fontSize, 4, (Color) {255, 220, 80, 255});
+            Vector2 np = {pos.x - 116, pos.y + 8};
+            DrawTriangle((Vector2) {np.x, np.y}, (Vector2) {np.x, np.y + 36},
+                (Vector2) {np.x + 30, np.y + 18}, (Color) {80, 220, 100, 255});
+        }
     }
 
-    // tracklist da selecionada (direita)
+    // titulo da week no canto superior direito (+ frase so se o json definir)
+    {
+        WeekEntry* w = weeks + selected;
+        Vector2 ts = MeasureTextEx(mainFont, w->title, 40, 3);
+        float tx = 1280 - 50 - ts.x;
+        DrawTextEx(mainFont, w->title, (Vector2) {tx + 3, 53}, 40, 3, outlineColor);
+        DrawTextEx(mainFont, w->title, (Vector2) {tx, 50}, 40, 3, fontColor);
+        if(w->flavor[0] != 0) {
+            const int fs = 22;
+            const int lh = 26;
+            int line = 0;
+            const char* s = w->flavor;
+            char linebuf[48];
+            while(line < 4) {
+                size_t k = 0;
+                while(s[k] != 0 && s[k] != '\n' && k < 47) { linebuf[k] = s[k]; k++; }
+                linebuf[k] = 0;
+                Vector2 ls = MeasureTextEx(mainFont, linebuf, fs, 2);
+                float lx = 1280 - 50 - ls.x;
+                DrawTextEx(mainFont, linebuf, (Vector2) {lx + 2, 102 + line * lh}, fs, 2, outlineColor);
+                DrawTextEx(mainFont, linebuf, (Vector2) {lx, 100 + line * lh}, fs, 2, (Color) {255, 220, 130, 255});
+                if(s[k] == 0) break;
+                s += k + 1;
+                line++;
+            }
+        }
+    }
+
+    // tracklist da selecionada (direita, parte de cima)
     {
         WeekEntry* w = weeks + selected;
         float x = 800;
-        float y = 180;
+        float y = 150;
         char b[128];
         snprintf(b, sizeof(b), "%d songs", w->songCount);
         DrawTextEx(mainFont, b, (Vector2) {x, y}, 28, 2, (Color) {255, 220, 80, 255});
@@ -197,27 +331,26 @@ static void StoryState_Draw([[maybe_unused]] RayScene* scene) {
             snprintf(b, sizeof(b), "%d. %s", i + 1, w->songs[i].song);
             DrawTextEx(mainFont, b, (Vector2) {x, y}, 24, 2, WHITE);
             y += 32;
-            if(y > 520)
+            if(y > 440)
                 break;
         }
-        snprintf(b, sizeof(b), "< %s >", DIFF_NAMES[diffIdx]);
-        DrawTextEx(mainFont, b, (Vector2) {x, 560}, 30, 3, (Color) {140, 255, 140, 255});
         if(WeekRun_LastTotal() > 0) {
-            snprintf(b, sizeof(b), "ULTIMA: %d", WeekRun_LastTotal());
-            DrawTextEx(mainFont, b, (Vector2) {x, 600}, 24, 2, (Color) {200, 200, 200, 255});
+            snprintf(b, sizeof(b), "LAST: %d", WeekRun_LastTotal());
+            DrawTextEx(mainFont, b, (Vector2) {x, y + 8}, 24, 2, (Color) {200, 200, 200, 255});
         }
     }
 
     if(statusTimer > 0)
         DrawTextEx(mainFont, statusText, (Vector2) {150, 660}, 24, 2, YELLOW);
 
-    DrawTextEx(mainFont, "ENTER comeca   <-/-> dificuldade   DEL apaga   ESC volta",
-        (Vector2) {150, 692}, 20, 1, (Color) {200, 200, 200, 255});
+    DrawTextEx(mainFont, "ENTER start   DEL or / delete   ESC back",
+        (Vector2) {150, 692}, 20, 1, YELLOW);
     Render_StopCamera();
 }
 
 static void StoryState_Destroy([[maybe_unused]] RayScene* scene) {
     UnloadTexture(bg.image);
+    Story_UnloadIcon();
     WeekList_Free(weeks);
     weeks = NULL;
     weekCount = 0;

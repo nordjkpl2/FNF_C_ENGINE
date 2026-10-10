@@ -6,7 +6,6 @@
 #include "scenes/Week.h"
 
 void PlayState_SetScene(void);
-void PlayState_SetSong(char* song);
 void PlayState_SetSongDir(const char* dir);
 void PlayState_SetSongDirKeep(const char* dir);
 void PlayState_SetReturnEditor(char on);
@@ -32,4 +31,7 @@ void AllScenes_StartGame(void);
 void AllScenes_DestroyGame(void);
 /* cache */
 RayAnimationHandler Cache_GetNoteAnimations(void);
+RayAnimationHandler Cache_GetNoteSkin(const char* skinName, const char* songDir);
+RayAnimationHandler* Cache_GetDefaultNoteSkinPtr(void);
+void Cache_UnloadCustomNoteSkins(void);
 #endif

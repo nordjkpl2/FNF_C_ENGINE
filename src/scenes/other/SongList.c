@@ -29,9 +29,20 @@ static void Scan_Add(const char* dirPath, const char* displayName) {
     if(!Song_HasChart(dirPath))
         return;
 
+    // raylib devolve separador misto no Windows (assets/mods\songs/...) e o
+    // resto do codigo casa substring "assets/mods/": normaliza p/ '/' aqui,
+    // uma vez, que vale p/ songDir/chart.dir/WeekRun em todo lugar.
+    char norm[256];
+    size_t L = strlen(dirPath);
+    if(L >= sizeof(norm))
+        L = sizeof(norm) - 1;
+    for(size_t i = 0; i < L; i++)
+        norm[i] = (dirPath[i] == '\\') ? '/' : dirPath[i];
+    norm[L] = 0;
+
     // dedup by dir
     for(int i = 0; i < entryCount; i++) {
-        if(strcmp(entries[i].dir, dirPath) == 0)
+        if(strcmp(entries[i].dir, norm) == 0)
             return;
     }
 
@@ -47,8 +58,9 @@ static void Scan_Add(const char* dirPath, const char* displayName) {
     SongEntry* e = entries + entryCount;
     strncpy(e->name, (displayName != NULL) ? displayName : Dir_BaseName(dirPath), sizeof(e->name) - 1);
     e->name[sizeof(e->name) - 1] = 0;
-    strncpy(e->dir, dirPath, sizeof(e->dir) - 1);
+    strncpy(e->dir, norm, sizeof(e->dir) - 1);
     e->dir[sizeof(e->dir) - 1] = 0;
+    e->opp[0] = 0; // lazy: freeplay resolve fora do scan
     entryCount++;
 }
 
@@ -74,9 +86,8 @@ static void Scan_Subdirs(const char* base, char isMods) {
                 if(DirectoryExists(songsDir)) {
                     FilePathList inner = LoadDirectoryFilesEx(songsDir, "DIR", false);
                     for(unsigned int j = 0; j < inner.count; j++) {
-                        char disp[64];
-                        snprintf(disp, sizeof(disp), "%s/%s", modName, Dir_BaseName(inner.paths[j]));
-                        Scan_Add(inner.paths[j], disp);
+                        // mostra so a musica (estilo Psych); dir continua unico p/ match
+                        Scan_Add(inner.paths[j], Dir_BaseName(inner.paths[j]));
                     }
                     UnloadDirectoryFiles(inner);
                 }
@@ -139,5 +150,120 @@ char SongList_IsHeavy(const char* dir) {
     snprintf(p, sizeof(p), "%s/data.song", dir);
     if(File_Size(p) > HEAVY_CHART_BYTES)
         return 1;
+    return 0;
+}
+
+// copia player2 de um buffer json cru (procura "player2" : "nome"). 1 = achou.
+static char Opp_FromJsonBuf(const char* buf, size_t n, char out[32]) {
+    const char* key = "\"player2\"";
+    size_t kl = 9;
+    for(size_t i = 0; i + kl < n; i++) {
+        size_t k = 0;
+        while(k < kl && buf[i + k] == key[k]) k++;
+        if(k != kl) continue;
+        size_t j = i + kl;
+        while(j < n && (buf[j] == ' ' || buf[j] == '\t' || buf[j] == '\r' || buf[j] == '\n')) j++;
+        if(j >= n || buf[j] != ':') continue;
+        j++;
+        while(j < n && (buf[j] == ' ' || buf[j] == '\t' || buf[j] == '\r' || buf[j] == '\n')) j++;
+        if(j >= n || buf[j] != '"') continue;
+        j++;
+        size_t w = 0;
+        while(j < n && buf[j] != '"' && w < 31) out[w++] = buf[j++];
+        if(j >= n || buf[j] != '"' || w == 0) continue;
+        out[w] = 0;
+        // valida como nome de char (sem path traversal); invalido = tenta o proximo
+        char bad = 0;
+        for(size_t t = 0; t < w; t++) {
+            if(out[t] == '/' || out[t] == '\\') { bad = 1; break; }
+        }
+        if(!bad && strstr(out, "..") != NULL) bad = 1;
+        if(bad) continue;
+        return 1;
+    }
+    return 0;
+}
+
+static char Opp_FromJsonFile(const char* path, char out[32]) {
+    FILE* f = fopen(path, "rb");
+    if(f == NULL) return 0;
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if(size < 12 || size > 8L * 1024 * 1024) { fclose(f); return 0; }
+    char* buf = malloc((size_t)size);
+    if(buf == NULL) { fclose(f); return 0; }
+    size_t n = fread(buf, 1, (size_t)size, f);
+    fclose(f);
+    char ok = Opp_FromJsonBuf(buf, n, out);
+    free(buf);
+    return ok;
+}
+
+// header do .song binario sem fatal: player1, player2, stage (len+bytes). 1 = leu player2.
+static char Opp_FromSongBin(const char* path, char out[32]) {
+    FILE* f = fopen(path, "rb");
+    if(f == NULL) return 0;
+    char tmp[3][32];
+    for(int s = 0; s < 3; s++) {
+        int len = 0;
+        if(fread(&len, sizeof(int), 1, f) != 1) { fclose(f); return 0; }
+        if(len < 1 || len > 31) { fclose(f); return 0; }
+        if(fread(tmp[s], 1, (size_t)len, f) != (size_t)len) { fclose(f); return 0; }
+        tmp[s][len] = 0;
+    }
+    fclose(f);
+    if(tmp[1][0] == 0) return 0;
+    strncpy(out, tmp[1], 31);
+    out[31] = 0;
+    return 1;
+}
+
+char SongList_Opponent(const char* dir, char out[32]) {
+    strncpy(out, "dad", 32);
+    out[31] = 0;
+    if(dir == NULL || dir[0] == 0) return 0;
+    char p[300];
+    // 1. nossa convencao normal (player2 raramente muda por diff)
+    snprintf(p, sizeof(p), "%s/data.json", dir);
+    if(Opp_FromJsonFile(p, out)) return 1;
+    // 2. Psych: <pasta>.json
+    {
+        const char* s1 = strrchr(dir, '/');
+        const char* s2 = strrchr(dir, '\\');
+        const char* b = (s1 > s2) ? s1 : s2;
+        b = (b != NULL) ? b + 1 : dir;
+        if(b[0] != 0) {
+            snprintf(p, sizeof(p), "%s/%s.json", dir, b);
+            if(Opp_FromJsonFile(p, out)) return 1;
+        }
+    }
+    // 2b. Psych: qualquer chart do dir com player2 (ex. <musica>-insane.json).
+    // Le o chart inteiro ate achar; se nao achar, cai no "dad" e resolve.
+    if(DirectoryExists(dir)) {
+        FilePathList list = LoadDirectoryFilesEx(dir, ".json", false);
+        for(unsigned int i = 0; i < list.count; i++) {
+            const char* jp = list.paths[i];
+            const char* q1 = strrchr(jp, '/');
+            const char* q2 = strrchr(jp, '\\');
+            const char* qb = (q1 > q2) ? q1 : q2;
+            qb = (qb != NULL) ? qb + 1 : jp;
+            size_t ql = strlen(qb);
+            if(ql == 11) {
+                char low[12];
+                for(int t = 0; t < 11; t++) {
+                    char c = qb[t];
+                    low[t] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c;
+                }
+                low[11] = 0;
+                if(strcmp(low, "events.json") == 0) continue;
+            }
+            if(Opp_FromJsonFile(jp, out)) { UnloadDirectoryFiles(list); return 1; }
+        }
+        UnloadDirectoryFiles(list);
+    }
+    // 3. binario .song
+    snprintf(p, sizeof(p), "%s/data.song", dir);
+    if(Opp_FromSongBin(p, out)) return 1;
     return 0;
 }

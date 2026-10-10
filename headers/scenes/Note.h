@@ -27,7 +27,16 @@ int StrumNote_ConfirmAnimation(int id);
 
 void Note_Load(Note* note, DataNote* dataNote);
 
-char DataNote_ShouldSpawn(DataNote* dataNote, float time, float speed);
+// define skin atual da musica (chamado 1x no load da musica)
+void Note_SetCurrentSkin(const RayAnimationHandler* skin);
+const RayAnimationHandler* Note_GetCurrentSkin(void);
+
+// reload animations for current skin (chamado apos trocar skin)
+void NoteStuff_LoadAnimations(void);
+
+// janela de hit (setada 1x por musica via diffSuf; default 0.200 = normal)
+void Note_SetWindow(float w);
+float Note_Window(void);
 
 char Note_CanBeHit(Note* note, float time);
 char Note_TooEarly(Note* note, float time);
@@ -37,6 +46,4 @@ char Note_ShouldHold(Note* note, float time);
 int Note_Animation(int id);
 int Note_TrailAnimation(int id);
 int Note_EndAnimation(int id);
-
-int TrailNote_GetAnimation(int id);
 #endif

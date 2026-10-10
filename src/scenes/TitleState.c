@@ -4,12 +4,9 @@ static BeatManager beatHandle;
 
 static RayAnimatedObject gf;
 
-static RayGraphicObject icon;
 static RayGraphicObject fnf;
 static float logoOffset;
- 
-static int timeID;
- 
+  
 static char pressedEnter;
 
 static float fadeTime;
@@ -68,9 +65,6 @@ static void TitleState_Create([[maybe_unused]] RayScene* scene) {
 } 
 
 static void onBeatHit() {
-    const int inc = 65;
-    const int offset = 120; 
-
     beat++;
 
     fnf.scaleX = fnf.scaleY = 1.1f;

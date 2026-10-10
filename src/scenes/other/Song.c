@@ -1,11 +1,19 @@
 #include"std.h"
 #include"scenes/Song.h"
 #include"cJSON.h"
+#include"Log.h"
 
-#define IERR  {puts("\ninvalid data");exit(1);}
+#define IERR Log_Fatal("invalid data");
 #define CHECK_LEN(readOperation, expectedSize) if(readOperation != expectedSize) IERR
 
 #define SONG_JSON_MAX_BYTES (8 * 1024 * 1024)
+
+static const char* Dir_BaseName(const char* path) {
+    const char* s1 = strrchr(path, '/');
+    const char* s2 = strrchr(path, '\\');
+    const char* s = (s1 > s2) ? s1 : s2;
+    return (s != NULL) ? s + 1 : path;
+}
 
 void File_ReadString(FILE* file, char str[32]) {
     int len;
@@ -41,14 +49,13 @@ static int RawNote_Compare(const void* a, const void* b) {
 void Song_Parse(Song* song, const char* songDataPath) {
     FILE* file = fopen(songDataPath, "rb");
     
-    if(file == NULL) {
-        printf("could not open file %s\n", songDataPath);
-        exit(1);
-    }
+    if(file == NULL)
+        Log_FatalF("could not open file %s", songDataPath);
 
     File_ReadString(file, song->player1);
     File_ReadString(file, song->player2);
     File_ReadString(file, song->stage);
+    Song_CopyString(song->gfVersion, NULL, "gf"); // binario antigo nao tem o campo
 
     CHECK_LEN(fread(&song->speed, sizeof(float), 1, file), 1)
     CHECK_LEN(fread(&song->sectionCount, sizeof(int), 1, file), 1)
@@ -72,17 +79,21 @@ void Song_Parse(Song* song, const char* songDataPath) {
        // printf("> section %d\n  len %d\n   bpm %f\n   mustHit %c\n   noteCount %d\n", i, section->len, section->bpm, section->mustHit, section->noteCount);
 
         section->notes = malloc(sizeof(DataNote) * section->noteCount);
+        if(section->notes == NULL)
+            IERR;
 
+        // bulk read: 1 fread for all notes in section (speed + fewer syscalls)
+        size_t noteBytes = sizeof(DataNote) * section->noteCount;
+        if(fread(section->notes, 1, noteBytes, file) != noteBytes)
+            IERR;
+        
+        // validate + convert id (int16_t on disk, int in memory)
         for(size_t j = 0; j < section->noteCount; j++) {
             DataNote* note = section->notes + j;
-
-            CHECK_LEN(fread(&note->time, sizeof(float), 1, file), 1)
-            if(note->time < 0) IERR
-            CHECK_LEN(fread(&note->id, sizeof(int), 1, file), 1)
+            if(note->time < 0) IERR;
             int id = abs(note->id);
-            if(id == 0 || id > 4) IERR
-            CHECK_LEN(fread(&note->len, sizeof(float), 1, file), 1)
-            if(note->len < 0) IERR 
+            if(id == 0 || id > 4) IERR;
+            if(note->len < 0) IERR;
         }
     }
 
@@ -156,10 +167,22 @@ char Song_ParseJSON(Song* song, const char* jsonPath) {
     cJSON* jplayer1 = cJSON_GetObjectItem(jsong, "player1");
     cJSON* jplayer2 = cJSON_GetObjectItem(jsong, "player2");
     cJSON* jstage = cJSON_GetObjectItem(jsong, "stage");
+    cJSON* jgf = cJSON_GetObjectItem(jsong, "gfVersion");
+    cJSON* jnoteSkin = cJSON_GetObjectItem(jsong, "noteSkin");
 
     Song_CopyString(song->player1, cJSON_IsString(jplayer1) ? jplayer1->valuestring : NULL, "bf");
     Song_CopyString(song->player2, cJSON_IsString(jplayer2) ? jplayer2->valuestring : NULL, "dad");
     Song_CopyString(song->stage, cJSON_IsString(jstage) ? jstage->valuestring : NULL, "stage");
+    // ausente = "gf" (mostra); explicito "" ou "nogf" = esconde (regra Psych)
+    if(cJSON_IsString(jgf))
+        Song_CopyString(song->gfVersion, jgf->valuestring, "gf");
+    else
+        Song_CopyString(song->gfVersion, NULL, "gf");
+    // noteSkin: custom note skin name (busca em mod/images/ e global assets/images/)
+    if(cJSON_IsString(jnoteSkin))
+        Song_CopyString(song->noteSkin, jnoteSkin->valuestring, "");
+    else
+        song->noteSkin[0] = 0;
 
     song->bpm = topBpm;
     song->speed = speed;
@@ -177,7 +200,7 @@ char Song_ParseJSON(Song* song, const char* jsonPath) {
     }
     song->sectionCount = sectionCount;
 
-    // mirrors fix/Chart.hx: running bpm, changeBPM gate, dedup window 2ms
+    // regra Psych: bpm corrido por secao (so troca com changeBPM), dedup 2ms por lane
     float runningBpm = topBpm;
     for(int i = 0; i < sectionCount; i++) {
         cJSON* jsec = cJSON_GetArrayItem(jnotes, i);
@@ -241,7 +264,7 @@ char Song_ParseJSON(Song* song, const char* jsonPath) {
 
         qsort(raw, (size_t)valid, sizeof(RawNote), RawNote_Compare);
 
-        // dedup same lane within 2ms, same as Chart.hx idiot[8]
+        // dedup: mesma lane dentro de 2ms descarta (ultimo tempo por lane)
         float last[8];
         for(int k = 0; k < 8; k++) last[k] = -999999.0f;
         DataNote* out = malloc(sizeof(DataNote) * (size_t)valid);
@@ -377,7 +400,75 @@ static char Song_ResolveChart(const char* dirPath, const char* diff, char out[30
         return 1;
     }
 
-    // 2. estilo Psych: <musica>.json / <musica>-easy.json / <musica>-hard.json
+    // 2. estrutura Psych/mod Nullified: mods/data/<song>/<song>-<diff>.json
+    // detecta se estamos num mod: dirPath contem "assets/mods/"
+    const char* pm = strstr(dirPath, "assets/mods/");
+    if(pm != NULL) {
+        const char* after = pm + 12; // pula "assets/mods/"
+        const char* slash = strchr(after, '/');
+        char modRoot[260] = {0};
+        if(slash != NULL) {
+            const char* songs = strstr(slash, "/songs/");
+            size_t n = (size_t)((songs != NULL ? songs : slash) - dirPath);
+            if(n < sizeof(modRoot)) {
+                memcpy(modRoot, dirPath, n);
+                modRoot[n] = 0;
+            }
+        } else {
+            strncpy(modRoot, dirPath, sizeof(modRoot) - 1);
+        }
+        if(modRoot[0] != 0) {
+            // extrai nome da musica (ultima pasta do dirPath)
+            const char* songName = Dir_BaseName(dirPath);
+            snprintf(p, sizeof(p), "%s/data/%s", modRoot, songName);
+            if(DirectoryExists(p)) {
+                FilePathList list = LoadDirectoryFilesEx(p, ".json", false);
+                char want[16] = "normal";
+                if(diff != NULL && diff[0] != 0)
+                    strncpy(want, diff, sizeof(want) - 1);
+
+                char diffCand[300] = {0};
+                char normalCand[300] = {0};
+                char anyCand[300] = {0};
+                for(unsigned int i = 0; i < list.count; i++) {
+                    const char* jp = list.paths[i];
+                    char stem[128];
+                    PathBaseName(jp, stem, sizeof(stem));
+                    if(!LooksLikeChart(jp))
+                        continue;
+                    if(anyCand[0] == 0)
+                        strncpy(anyCand, jp, sizeof(anyCand) - 1);
+                    char isDiff = EndsWithI(stem, "-easy") || EndsWithI(stem, "-hard") || EndsWithI(stem, "-normal");
+                    if(strcmp(want, "normal") != 0) {
+                        char suf[16];
+                        snprintf(suf, sizeof(suf), "-%s", want);
+                        if(EndsWithI(stem, suf) && diffCand[0] == 0)
+                            strncpy(diffCand, jp, sizeof(diffCand) - 1);
+                    }
+                    if(!isDiff) {
+                        if(normalCand[0] == 0)
+                            strncpy(normalCand, jp, sizeof(normalCand) - 1);
+                    }
+                }
+                UnloadDirectoryFiles(list);
+
+                const char* pick = NULL;
+                if(diffCand[0] != 0)
+                    pick = diffCand;
+                else if(normalCand[0] != 0)
+                    pick = normalCand;
+                else if(anyCand[0] != 0)
+                    pick = anyCand;
+                if(pick != NULL) {
+                    strncpy(out, pick, 299);
+                    out[299] = 0;
+                    return 1;
+                }
+            }
+        }
+    }
+
+    // 3. estilo Psych: <musica>.json / <musica>-easy.json / <musica>-hard.json (na pasta da musica)
     if(!DirectoryExists(dirPath))
         return 0;
     FilePathList list = LoadDirectoryFilesEx(dirPath, ".json", false);
