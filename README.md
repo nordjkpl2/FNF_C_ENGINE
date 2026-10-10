@@ -26,10 +26,6 @@ gcc main.c $(find src -name "*.c") $(find lib -name "*.c") -o FNF_C_ENGINE.exe -
 
 Output: `FNF_C_ENGINE.exe` — double-click to play (Title → Menu → Story / Freeplay / Options / Modding).
 
-## Game info
-
-In-game help covers the controls (menus, gameplay schemes, chart editor shortcuts) — no need to duplicate them here.
-
 ### Charts, audio and compatibility
 
 - Song scan requires `Inst.ogg`; gameplay voices use the single `Voices.ogg` (split `Voices-Opponent/Player` opens in the editor/import only)
