@@ -79,7 +79,3 @@ assets/mods/    # mods (songs, stages, images/icons)
 - [ ] v0.4 — Additional features (WeekEditor, pending)
 - [ ] v0.5 — Tests and tuning
 - [ ] v1.0 — Release
-
-## Contributing
-
-Performance budget is strict: every new feature must justify its RAM/CPU/disk cost, avoid per-frame allocation, and follow the existing scene pattern (`Scene_MakeSceneCode`, per-scene statics). Check the `build` file before compiling and never reorder save fields.
