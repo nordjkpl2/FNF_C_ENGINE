@@ -26,17 +26,6 @@ gcc main.c $(find src -name "*.c") $(find lib -name "*.c") -o FNF_C_ENGINE.exe -
 
 Output: `FNF_C_ENGINE.exe` — double-click to play (Title → Menu → Story / Freeplay / Options / Modding).
 
-### Charts, audio and compatibility
-
-- Song scan requires `Inst.ogg`; gameplay voices use the single `Voices.ogg` (split `Voices-Opponent/Player` opens in the editor/import only)
-- `events.json` is ignored; note data comes from `notes[].sectionNotes`
-- `Song.bpm` from binary is `0` — use `sections[0].bpm`
-- Never store `TextFormat()` results (temporary buffer); `Song_HasChart` requires a valid chart
-
-### Save format
-
-`assets/save.data` is versioned (`SAVE_VERSION 2`, 22 bytes). Field order is fixed and must never change; v0 (19B) and v1 (21B) migrate automatically in `GameData.c`. Keep save backups in TEMP, not in the repo.
-
 ### Modding
 
 ```text
