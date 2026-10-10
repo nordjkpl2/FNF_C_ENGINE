@@ -9,7 +9,7 @@ A performance-focused Friday Night Funkin' engine written in pure C (C23) on top
 
 ## Getting started (new here? start here)
 
-### Requirements
+### Requirements (for compiling the code, for playing use the distribuitons disponible)
 
 - Windows + MinGW-w64 GCC with C23 support
 - raylib DLL (`raylib.dll` next to the exe, `lib/` headers already vendored)
