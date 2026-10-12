@@ -8,11 +8,14 @@ A performance-focused engine for Friday Night Funkin' written in pure (C23) usin
 **Progress:** `██████░░░░░░░░░░░░░░ 30%`
 
 ```text
-assets/mods/<mod>/songs/<song>/data.json
-assets/mods/<mod>/songs/<song>/Inst.ogg
-assets/mods/<mod>/songs/<song>/Voices.ogg
-assets/mods/<mod>/stages/<stage>.json|.lua
-assets/mods/<mod>/images/icons/<char>.png
+assets/
+mods/
+<mod>
+songs/ <song> /data.json (notes chart/generator file)
+songs/ <song> /Inst.ogg (instrumental)
+songs/ <song> /Voices.ogg (voices)
+stages/ <stage>.json|.lua (stage/background)
+images/ icons /<icon>.png (icon)
 ```
 
 ```text
