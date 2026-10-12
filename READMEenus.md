@@ -4,9 +4,6 @@ A performance-focused engine for Friday Night Funkin' written in pure (C23) usin
 
 > Not a commercial product. All Friday Night Funkin' assets belong to their respective owners.
 
-**Status:** `v0.3 / v1.0 (30%)`
-**Progress:** `██████░░░░░░░░░░░░░░ 30%`
-
 ```text
 assets/
 mods/
