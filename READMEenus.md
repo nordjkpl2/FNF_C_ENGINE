@@ -28,7 +28,7 @@ assets/         # songs, weeks, stages, characters, sounds, fonts, save.data
 assets/mods/    # mods (songs, stages, images/icons)
 ```
 
-## Roadmap
+## Development Roadmap
 
 **Status:** `v0.3 / v1.0 (30%)`
 **Progress:** `██████░░░░░░░░░░░░░░ 30%`
