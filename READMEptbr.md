@@ -4,7 +4,7 @@ engine para Friday Night Funkin' com foco em desempenho, em puro (C23) utilizand
 
 > Não é um produto comercial. Todos os recursos (assets) de Friday Night Funkin' pertencem aos seus respectivos proprietários.
 
-# Dev
+# 1 Dev
 
 ```text
 assets/
@@ -34,7 +34,7 @@ assets/mods/    # mods (músicas, cenários, imagens/ícones)
 Raylib v5.5 / Raymath v2.0 / 20022017 cJson / OpenGl 3.30
 ```
 
-## Desenvolvimento
+## 1.1 Desenvolvimento
 
 **Status:** `v0.3 / v1.0 (30%)`
 **Progresso:** `██████░░░░░░░░░░░░░░ 30%`
