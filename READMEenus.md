@@ -4,6 +4,8 @@ A performance-focused engine for Friday Night Funkin' written in pure (C23) usin
 
 > Not a commercial product. All Friday Night Funkin' assets belong to their respective owners.
 
+# Dev
+
 ```text
 assets/
 mods/
@@ -28,6 +30,10 @@ assets/         # songs, weeks, stages, characters, sounds, fonts, save.data
 assets/mods/    # mods (songs, stages, images/icons)
 ```
 
+```text
+Raylib v5.5 / Raymath v2.0 / 20022017 cJson / OpenGl 3.30
+```
+
 ## Development Roadmap
 
 **Status:** `v0.3 / v1.0 (30%)`
@@ -35,7 +41,7 @@ assets/mods/    # mods (songs, stages, images/icons)
 
 - [x] v0.1 — Basis
 - [x] v0.2 — Basis functions
-- [x] v0.3 — Chart Editor (current)
+- [x] v0.3 — Music Editor and Additional Things its Basic (current)
 - [ ] v0.4 — Additional features (WeekEditor, pending)
 - [ ] v0.5 — Tests and tuning
 - [ ] v1.0 — Release
