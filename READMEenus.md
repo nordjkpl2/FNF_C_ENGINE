@@ -4,7 +4,7 @@ A performance-focused engine for Friday Night Funkin' written in pure (C23) usin
 
 > Not a commercial product. All Friday Night Funkin' assets belong to their respective owners.
 
-# Dev
+# 1 Dev
 
 ```text
 assets/
@@ -34,7 +34,7 @@ assets/mods/    # mods (songs, stages, images/icons)
 Raylib v5.5 / Raymath v2.0 / 20022017 cJson / OpenGl 3.30
 ```
 
-## Development Roadmap
+## 1.1 Development Roadmap
 
 **Status:** `v0.3 / v1.0 (30%)`
 **Progress:** `██████░░░░░░░░░░░░░░ 30%`
