@@ -11,11 +11,11 @@ engine para Friday Night Funkin' com foco em desempenho, em puro (C23) utilizand
 assets/
 mods/
 <mod>
-/songs/<song>/data.json (notas)
-/songs/<song>/Inst.ogg (instrumental)
-/songs/<song>/Voices.ogg (vozes)
-/stages/<stage>.json|.lua (fundo)
-/images/icons/<icon>.png (icones)
+songs/ <song> /data.json (notas)
+songs/ <song> /Inst.ogg (instrumental)
+songs/ <song> /Voices.ogg (vozes)
+stages/ <stage>.json|.lua (fundo)
+images/ icons /<icon>.png (icones)
 ```
 
 ```text
