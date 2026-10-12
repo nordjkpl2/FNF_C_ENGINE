@@ -4,9 +4,6 @@ engine para Friday Night Funkin' com foco em desempenho, em puro (C23) utilizand
 
 > Não é um produto comercial. Todos os recursos (assets) de Friday Night Funkin' pertencem aos seus respectivos proprietários.
 
-**Status:** `v0.3 / v1.0 (30%)`
-**Progresso:** `██████░░░░░░░░░░░░░░ 30%`
-
 ```text
 assets/
 mods/
