@@ -44,4 +44,5 @@ Raylib v5.5 / Raymath v2.0 / 20022017 cJson / OpenGl 3.30
 - [x] v0.3 — Music Editor and Additional Things its Basic (current)
 - [ ] v0.4 — Additional features (WeekEditor, pending)
 - [ ] v0.5 — Tests and tuning
+- [ ] v0.9 — Game Polish and Bug Testing
 - [ ] v1.0 — Release
