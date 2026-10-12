@@ -4,6 +4,8 @@ Global Readme for Info Branch
 (30%) ██████░░░░░░░░░░░░░░ / 0.3.121212 of 1.0
 ```
 
+Readme .markdown Parts
+
 ```text
 [
   1 Dev
