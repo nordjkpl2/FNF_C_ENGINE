@@ -41,7 +41,7 @@ Raylib v5.5 / Raymath v2.0 / 20022017 cJson / OpenGl 3.30
 
 - [x] v0.1 — Base
 - [x] v0.2 — Funções básicas
-- [x] v0.3 — Editor de Charts (Fase de Desenvolvimento Está Aqui)
+- [x] v0.3 — Editor de Música e Coisas Adicionais que São Basicas (Fase de Desenvolvimento Está Aqui)
 - [ ] v0.4 — Recursos adicionais (Week Editor (criador pra aba de semanas), coisas adicionais como um gráfico melhor)
 - [ ] v0.5 — Testes e ajustes
 - [ ] v0.9 — Polimento e Testes de Bugs
