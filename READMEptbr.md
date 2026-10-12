@@ -28,7 +28,7 @@ assets/         # músicas, semanas, cenários, personagens, sons, fontes, save.
 assets/mods/    # mods (músicas, cenários, imagens/ícones)
 ```
 
-## Roteiro
+## Desenvolvimento
 
 **Status:** `v0.3 / v1.0 (30%)`
 **Progresso:** `██████░░░░░░░░░░░░░░ 30%`
