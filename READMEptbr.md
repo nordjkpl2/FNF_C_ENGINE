@@ -23,7 +23,7 @@ main.c
 headers/        # arquivos Header públicos (Game, Scene, Render, scenes/*)
 src/            # Game.c, Scene.c, Render.c, Log.c, GameData.c
 src/scenes/     # Titúlo, Menu, Historia, Aba de Freeplay, PlayState (Estado de Jogo), Opções,
-# Loading, Modding, ChartEditor, AllScenes (Todas as Cenas)
+                # Loading, Modding, ChartEditor, AllScenes (Todas as Cenas)
 src/scenes/other/ # Song (Música), SongList (Lista de Músicas), Week (Suporte a Aba de Week Do Friday Night Funkin'), Stage (Background), Note (Notas), Character (Personagens),
 # BeatManager (Part e Coisas a ver com a música), AnimationSets (Sets de Animação), ModImport (Tentando fazer um importador de Mods)
 lib/            # cJSON e bibliotecas externas incluídas
