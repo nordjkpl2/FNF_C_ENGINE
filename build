@@ -1,14 +1,13 @@
 ~ $ cd "D:/dev/fnf c engine"
-gcc main.c $(find src -name "*.c") $(find lib -name "*.c") -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -flto -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O1 -s -DNDEBUG -fomit-frame-pointer
-
-> MENU
-//
-    STORY MODE 
-        src/scenes/StoryState.c
-    FREEPLAY
-        src/scenes/Freeplay.c
-    OPTIONS
-        src/scenes/OptionsMenu.c 
-    MODDING
-        src/scenes/ModdingState.c
-//
+> Compilação
+    gcc main.c $(find src -name "*.c") $(find lib -name "*.c") -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -flto -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O1 -s -DNDEBUG -fomit-frame-pointer
+    // ! Sem Fitogcc main.c $(find src -name "*.c") $(find lib -name "*.c") -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O1 -s -DNDEBUG -fomit-frame-pointer
+    
+    // Sem w64devkit
+    gcc main.c src/*.c lib/*.c -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O1 -s -DNDEBUG -fomit-frame-pointer
+> Menu
+    StoryMode ->            src/scenes/StoryState.c
+    Freeplay ->         src/scenes/Freeplay.c
+    Options ->      src/scenes/OptionsMenu.c 
+    Modding ->  src/scenes/ModdingState.c
+    Botplay -> PlayState

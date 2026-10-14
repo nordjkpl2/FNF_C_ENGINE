@@ -1,7 +1,9 @@
 #include"scenes/Character.h"
 #include"cJSON.h"
+#include"yyjson.h"
 
 // raiz do mod extraida do songDir (assets/mods/<mod>/...), "" = base.
+// ~ Line 70 Eu Acho tem q listar aqui o que é
 static char charModRoot[256] = {0};
 
 void Character_SetSongDir(const char* songDir) {
@@ -66,18 +68,19 @@ typedef struct {
     char looped;
     float ox, oy;
 } CharAnimDef;
-
 // Le animations[] + scale/flip/camera/healthicon/healthbar_colors do character .json (Psych).
-// Retorna defs em defs (cap) e metadados. Sem alloc.
+// Retorna defs em defs (cap) e metadados. Sem alloc (agora vai ter alloc eu acho kkk) 
 static int Char_ReadJson(const char* jsonPath, CharAnimDef* defs, int cap,
     float* scale, char* flipX, float* camX, float* camY, char* healthicon,
     char* imageBase, Color* healthColor) {
+    (void)healthColor; // Ignorado, pois a cor agora é controlada no código
     *scale = 1.0f;
     *flipX = 0;
     *camX = 0;
     *camY = 0;
     healthicon[0] = 0;
     imageBase[0] = 0;
+
     FILE* f = fopen(jsonPath, "rb");
     if(f == NULL)
         return 0;
@@ -100,115 +103,104 @@ static int Char_ReadJson(const char* jsonPath, CharAnimDef* defs, int cap,
     }
     buf[size] = 0;
     fclose(f);
-    cJSON* root = cJSON_Parse(buf);
+
+    // Parse usando yyjson
+    yyjson_doc* doc = yyjson_read(buf, (size_t)size, 0);
     free(buf);
-    if(root == NULL)
+    if(doc == NULL)
         return 0;
-    cJSON* js = cJSON_GetObjectItem(root, "scale");
-    if(cJSON_IsNumber(js) && js->valuedouble > 0.05 && js->valuedouble < 8)
-        *scale = (float)js->valuedouble;
-    cJSON* jf = cJSON_GetObjectItem(root, "flip_x");
-    if(cJSON_IsTrue(jf))
+    yyjson_val* root = yyjson_doc_get_root(doc);
+    if(root == NULL) {
+        yyjson_doc_free(doc);
+        return 0;
+    }
+
+    yyjson_val* js = yyjson_obj_get(root, "scale");
+    if(yyjson_is_num(js)) {
+        double s_val = yyjson_get_real(js);
+        if(s_val > 0.05 && s_val < 8)
+            *scale = (float)s_val;
+    }
+
+    yyjson_val* jf = yyjson_obj_get(root, "flip_x");
+    if(yyjson_is_bool(jf) && yyjson_get_bool(jf))
         *flipX = 1;
-    cJSON* jc = cJSON_GetObjectItem(root, "camera_position");
-    if(cJSON_IsArray(jc) && cJSON_GetArraySize(jc) >= 2) {
-        cJSON* a = cJSON_GetArrayItem(jc, 0);
-        cJSON* b = cJSON_GetArrayItem(jc, 1);
-        if(cJSON_IsNumber(a))
-            *camX = (float)a->valuedouble;
-        if(cJSON_IsNumber(b))
-            *camY = (float)b->valuedouble;
+
+    yyjson_val* jc = yyjson_obj_get(root, "camera_position");
+    if(yyjson_is_arr(jc) && yyjson_arr_size(jc) >= 2) {
+        yyjson_val* a = yyjson_arr_get(jc, 0);
+        yyjson_val* b = yyjson_arr_get(jc, 1);
+        if(yyjson_is_num(a)) *camX = (float)yyjson_get_real(a);
+        if(yyjson_is_num(b)) *camY = (float)yyjson_get_real(b);
     }
-    cJSON* jh = cJSON_GetObjectItem(root, "healthicon");
-    if(cJSON_IsString(jh) && jh->valuestring[0] != 0 && Char_Safe(jh->valuestring)) {
-        strncpy(healthicon, jh->valuestring, 31);
-        healthicon[31] = 0;
+
+    yyjson_val* jh = yyjson_obj_get(root, "healthicon");
+    if(yyjson_is_str(jh)) {
+        const char* jh_str = yyjson_get_str(jh);
+        if(jh_str && jh_str[0] != 0 && Char_Safe(jh_str)) {
+            strncpy(healthicon, jh_str, 31);
+            healthicon[31] = 0;
+        }
     }
+
     // base do png: "image": "characters/base" -> "base" (senao usa o nome)
-    cJSON* ji = cJSON_GetObjectItem(root, "image");
-    if(cJSON_IsString(ji) && ji->valuestring[0] != 0) {
-        const char* b = ji->valuestring;
-        const char* s1 = strrchr(b, '/');
-        const char* s2 = strrchr(b, '\\');
-        const char* s = (s1 > s2) ? s1 : s2;
-        b = (s != NULL) ? s + 1 : b;
-        if(b[0] != 0 && Char_Safe(b)) {
-            strncpy(imageBase, b, 31);
-            imageBase[31] = 0;
+    yyjson_val* ji = yyjson_obj_get(root, "image");
+    if(yyjson_is_str(ji)) {
+        const char* b = yyjson_get_str(ji);
+        if(b && b[0] != 0) {
+            const char* s1 = strrchr(b, '/');
+            const char* s2 = strrchr(b, '\\');
+            const char* s = (s1 > s2) ? s1 : s2;
+            b = (s != NULL) ? s + 1 : b;
+            if(b[0] != 0 && Char_Safe(b)) {
+                strncpy(imageBase, b, 31);
+                imageBase[31] = 0;
+            }
         }
     }
-    // cor da barra: Psych usa "healthbar_colors": [R,G,B]. Aceita singular + hex.
-    {
-        cJSON* jc = cJSON_GetObjectItem(root, "healthbar_colors");
-        if(jc == NULL) jc = cJSON_GetObjectItem(root, "healthbar_color");
-        if(jc == NULL) jc = cJSON_GetObjectItem(root, "health_color");
-        if(cJSON_IsArray(jc) && cJSON_GetArraySize(jc) >= 3) {
-            cJSON* r = cJSON_GetArrayItem(jc, 0);
-            cJSON* g = cJSON_GetArrayItem(jc, 1);
-            cJSON* b2 = cJSON_GetArrayItem(jc, 2);
-            if(cJSON_IsNumber(r) && cJSON_IsNumber(g) && cJSON_IsNumber(b2)) {
-                int ri = r->valueint, gi = g->valueint, bi = b2->valueint;
-                if(ri < 0) ri = 0; if(ri > 255) ri = 255;
-                if(gi < 0) gi = 0; if(gi > 255) gi = 255;
-                if(bi < 0) bi = 0; if(bi > 255) bi = 255;
-                if(healthColor != NULL)
-                    *healthColor = (Color){(unsigned char)ri, (unsigned char)gi, (unsigned char)bi, 255};
-            }
-        } else if(cJSON_IsString(jc) && jc->valuestring[0] != 0 && healthColor != NULL) {
-            const char* s = jc->valuestring;
-            if(s[0] == '#') s++;
-            else if(s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) s += 2;
-            unsigned int hex = 0;
-            int ok = 1;
-            for(int k = 0; k < 6; k++) {
-                char c = s[k];
-                int v = -1;
-                if(c >= '0' && c <= '9') v = c - '0';
-                else if(c >= 'a' && c <= 'f') v = c - 'a' + 10;
-                else if(c >= 'A' && c <= 'F') v = c - 'A' + 10;
-                else { ok = 0; break; }
-                hex = (hex << 4) | (unsigned int)v;
-            }
-            if(ok)
-                *healthColor = (Color){(unsigned char)((hex >> 16) & 0xFF), (unsigned char)((hex >> 8) & 0xFF), (unsigned char)(hex & 0xFF), 255};
-        }
-    }
+
     int n = 0;
-    cJSON* ja = cJSON_GetObjectItem(root, "animations");
-    if(cJSON_IsArray(ja)) {
-        int total = cJSON_GetArraySize(ja);
-        for(int i = 0; i < total && n < cap; i++) {
-            cJSON* a = cJSON_GetArrayItem(ja, i);
-            cJSON* jr = cJSON_GetObjectItem(a, "anim");
-            cJSON* jn = cJSON_GetObjectItem(a, "name");
-            if(!cJSON_IsString(jr) || !cJSON_IsString(jn))
+    yyjson_val* ja = yyjson_obj_get(root, "animations");
+    if(yyjson_is_arr(ja)) {
+        size_t idx, max;
+        yyjson_val* a;
+        yyjson_arr_foreach(ja, idx, max, a) {
+            if(n >= cap) break;
+            yyjson_val* jr = yyjson_obj_get(a, "anim");
+            yyjson_val* jn = yyjson_obj_get(a, "name");
+            if(!yyjson_is_str(jr) || !yyjson_is_str(jn))
                 continue;
-            if(jr->valuestring[0] == 0 || jn->valuestring[0] == 0)
+            
+            const char* r_str = yyjson_get_str(jr);
+            const char* n_str = yyjson_get_str(jn);
+            if(!r_str || !n_str || r_str[0] == 0 || n_str[0] == 0)
                 continue;
+
             CharAnimDef* d = defs + n;
-            strncpy(d->role, jr->valuestring, sizeof(d->role) - 1);
+            strncpy(d->role, r_str, sizeof(d->role) - 1);
             d->role[sizeof(d->role) - 1] = 0;
-            strncpy(d->sprite, jn->valuestring, sizeof(d->sprite) - 1);
+            strncpy(d->sprite, n_str, sizeof(d->sprite) - 1);
             d->sprite[sizeof(d->sprite) - 1] = 0;
-            cJSON* jfps = cJSON_GetObjectItem(a, "fps");
-            d->fps = (cJSON_IsNumber(jfps) && jfps->valueint > 0) ? jfps->valueint : 24;
-            cJSON* jl = cJSON_GetObjectItem(a, "loop");
-            d->looped = cJSON_IsTrue(jl) ? 1 : 0;
+
+            yyjson_val* jfps = yyjson_obj_get(a, "fps");
+            d->fps = (yyjson_is_num(jfps) && yyjson_get_int(jfps) > 0) ? yyjson_get_int(jfps) : 24;
+
+            yyjson_val* jl = yyjson_obj_get(a, "loop");
+            d->looped = (yyjson_is_bool(jl) && yyjson_get_bool(jl)) ? 1 : 0;
+
             d->ox = 0;
             d->oy = 0;
-            cJSON* jo = cJSON_GetObjectItem(a, "offsets");
-            if(cJSON_IsArray(jo) && cJSON_GetArraySize(jo) >= 2) {
-                cJSON* ox = cJSON_GetArrayItem(jo, 0);
-                cJSON* oy = cJSON_GetArrayItem(jo, 1);
-                if(cJSON_IsNumber(ox))
-                    d->ox = (float)ox->valuedouble;
-                if(cJSON_IsNumber(oy))
-                    d->oy = (float)oy->valuedouble;
+            yyjson_val* jo = yyjson_obj_get(a, "offsets");
+            if(yyjson_is_arr(jo) && yyjson_arr_size(jo) >= 2) {
+                yyjson_val* ox = yyjson_arr_get(jo, 0);
+                yyjson_val* oy = yyjson_arr_get(jo, 1);
+                if(yyjson_is_num(ox)) d->ox = (float)yyjson_get_real(ox);
+                if(yyjson_is_num(oy)) d->oy = (float)yyjson_get_real(oy);
             }
             n++;
         }
     }
-    cJSON_Delete(root);
+    yyjson_doc_free(doc);
     return n;
 }
 
@@ -240,11 +232,12 @@ static char Character_LoadCustom(Character* character, const char* name, char is
 
     float scale = 1.0f, camX = 0, camY = 0;
     char flipX = 0, healthicon[32] = {0}, imageBase[32] = {0};
-    character->healthColor = isDad ? (Color){230, 41, 55, 255} : (Color){42, 209, 86, 255};
     CharAnimDef defs[48];
     int ndefs = 0;
+    
+    // Chamada limpa do Char_ReadJson (sem o parâmetro de cor)
     if(hasJson)
-        ndefs = Char_ReadJson(json, defs, 48, &scale, &flipX, &camX, &camY, healthicon, imageBase, &character->healthColor);
+        ndefs = Char_ReadJson(json, defs, 48, &scale, &flipX, &camX, &camY, healthicon, imageBase, NULL);
 
     // png: base do campo "image" ("characters/base"), senao o proprio nome
     char gotPng = 0;
@@ -270,7 +263,9 @@ static char Character_LoadCustom(Character* character, const char* name, char is
         static const char* sprs[5] = {"idle", "singLEFT", "singDOWN", "singUP", "singRIGHT"};
         for(int i = 0; i < 5 && ndefs < 48; i++) {
             strncpy(defs[ndefs].role, roles[i], sizeof(defs[ndefs].role) - 1);
+            defs[ndefs].role[sizeof(defs[ndefs].role) - 1] = 0;
             strncpy(defs[ndefs].sprite, sprs[i], sizeof(defs[ndefs].sprite) - 1);
+            defs[ndefs].sprite[sizeof(defs[ndefs].sprite) - 1] = 0;
             defs[ndefs].fps = 24;
             defs[ndefs].looped = 0;
             defs[ndefs].ox = 0;
@@ -348,9 +343,9 @@ void Character_Load(Character* character, char* characterName, char isDad) {
 
         character->cameraOffset = (Vector2) {400, 300};
         character->icon = Render_LoadTexture("assets/images/icons/dad.png");
-        character->healthColor = (Color){230, 41, 55, 255};
     }
-    else if(strcmp(characterName, "bf") == 0 || !isDad) {
+    // fallback caso não tiver arquivo personalizado
+else if(strcmp(characterName, "bf") == 0 || !isDad) {
         characterAnimations = AnimationSet_LoadAnimations("assets/images/characters/bf.animset", Render_LoadTexture("assets/images/characters/bf.png"));
 
         AnimationSet_SetData(character->animations.idle, characterAnimations, "BF idle dance", 24, 0, -5, 0);
@@ -366,7 +361,6 @@ void Character_Load(Character* character, char* characterName, char isDad) {
 
         character->cameraOffset = (Vector2) {50, 50};
         character->icon = Render_LoadTexture("assets/images/icons/bf.png");
-        character->healthColor = (Color){42, 209, 86, 255};
     }
     character->object.animationSet = characterAnimations;
     AnimatedObject_SetAnimation(&character->object, character->animations.idle);

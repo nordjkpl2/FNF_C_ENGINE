@@ -10,7 +10,7 @@ typedef struct {
     RayAnimatedObject object;
     Vector2 cameraOffset;
     Texture2D icon;
-    Color healthColor;
+    // Color healthColor;
     /* // ? Idle */
     float idleTimer; 
     char idled;

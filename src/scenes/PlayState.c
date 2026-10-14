@@ -1,3 +1,4 @@
+/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 #include"scenes/AllScenes.h"
 #include"scenes/Character.h"
 #include"scenes/Note.h"
@@ -9,7 +10,15 @@ static float smooth(float a, float b, float c) {
 
 // scroll style helpers (0=Normal, 1=Downscroll, 2=Middlescroll)
 // Coords em 1280x720; stretch/zoom aplicados pela camera.
-
+/* // TODO: Notas e Scroll e Declarações line13-236*/
+/* // * line 240, Tudo o que é pre-declarado antes da música (velocidades , resetar o score etc) */
+/* // ? line 282 Código da Função de ReStart */
+/* // ! Line 341 Barra de Vida */
+/* // & line 366 As Definiçoes de Scroll Estão Aqui */
+/* // ~ Line 412 Personagens e Dificuldade */
+/* //(#FF5733) Aqui */
+/* //(#00ffff)i Aqui */
+/* //(#3498DB) 1369 Renderização da Barra de Vida */
 // Y do receptor por modo (0=Normal, 1=Downscroll, 2=Middlescroll)
 static float Scroll_StrumY(char mustHit) {
     if (game_options_scroll == 2) {
@@ -276,6 +285,8 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
         justDied = 1;
     }
 
+    /* //? Código Do Re Start Aqui */
+
     if(restarted) {
         AnimatedObject_SetAnimation(&dad.object, dad.animations.idle);
         AnimatedObject_SetAnimation(&bf.object, bf.animations.idle);
@@ -336,9 +347,15 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
         healthbar.height = 19;
         healthbar.x = 1280 / 2 - healthbar.width / 2; 
         healthbar.y = 640;
-
-        dadColor = RED;
-        bfColor = (Color) {42, 209, 86, 255};
+        // cores padrão do bf e dad
+        dadColor = (Color) { 204, 85, 180, 255 }; // roxo mais rosa
+        //{ 175, 102, 206, 255 }; // roxo
+        //{ 230, 41, 55, 255 }; // vermelho
+        bfColor = (Color) { 0, 217, 204, 255 };
+        //{ 255, 0, 255, 255 }; // rosa choque pra testar kkk
+        //{ 0, 217, 204, 255 };  // trying blue
+        // old color {42, 209, 86, 255}
+        // FIX-ME cuidado com a line 75 do character c que talvez pode continuar dando bug na barra de vida viu
     }
 
     // load strumlines
@@ -414,10 +431,6 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
         Character_Load(&dad, overrideP2[0] != 0 ? overrideP2 : song.player2, 1);
         Character_Load(&bf, song.player1, 0);
         Character_LoadDeathAnimations(&bf, song.player1, deathAnimations);
-        
-        // Usar cores do healthbar do JSON do personagem
-        dadColor = dad.healthColor;
-        bfColor = bf.healthColor;
 
         missSFX[0] = LoadSound("assets/sounds/missnote1.ogg");
         missSFX[1] = LoadSound("assets/sounds/missnote2.ogg");
