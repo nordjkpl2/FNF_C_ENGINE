@@ -6,5 +6,5 @@ A performance-focused Friday Night Funkin' engine written in pure C (C23) on top
 
 ```text
 # Libs
-Raylib v5.5 / Raymath v2.0 / 20022017 cJson / OpenGl 3.30
+Raylib v5.5 / Raymath v2.0 / 20022017 cJson (It will be replaced by yyjson.) / OpenGl 3.30
 ```
