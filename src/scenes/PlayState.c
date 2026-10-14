@@ -16,14 +16,15 @@ static float smooth(float a, float b, float c) {
 /* // ! Line 341 Barra de Vida */
 /* // & line 366 As Definiçoes de Scroll Estão Aqui */
 /* // ~ Line 412 Personagens e Dificuldade */
-/* //(#FF5733) Aqui */
+/* // ^ Line 650 Hit Notes (bad etc)*/
+/* //(#FF5733) Line 689 AutoPlay NoteHits e If Pressed */
 /* //(#00ffff)i Aqui */
-/* //(#3498DB) 1369 Renderização da Barra de Vida */
+/* //(#3498DB) Line 1369 Renderização da Barra de Vida */
 // Y do receptor por modo (0=Normal, 1=Downscroll, 2=Middlescroll)
 static float Scroll_StrumY(char mustHit) {
     if (game_options_scroll == 2) {
-        // Middlescroll: BF e Dad no meio da tela (Y=55), +5 do normal
-        return 55.0f;
+        // Middlescroll: BF e Dad no meio da tela (Y=55), +5 do normal antes tava 55.0f
+        return 20.0f;
     }
     if (game_options_scroll == 1) {
         // Downscroll (padrão FNF): AMBOS receptores em baixo (670), notas caem do topo
@@ -40,7 +41,7 @@ static float Scroll_NoteVelocity(void) {
 }
 
 // X da strumline
-static float Scroll_StrumX(int lane, char mustHit) {
+/*static float Scroll_StrumX(int lane, char mustHit) {
     if (game_options_scroll != 2) {
         // Normal/Downscroll: posicoes tradicionais
         return mustHit ? (700.0f + 110.0f * (lane - 4)) : (50.0f + 110.0f * lane);
@@ -53,6 +54,20 @@ static float Scroll_StrumX(int lane, char mustHit) {
     } else {
         // Opponent: 4 lanes no canto esquerdo, mini
         return 50.0f + 55.0f * lane; // 50, 105, 160, 215
+    }
+}*/
+static float Scroll_StrumX(int lane, char mustHit) {
+    if (game_options_scroll != 2) {
+        // Normal / Downscroll (posição padrão)
+        return mustHit ? (700.0f + 110.0f * (lane - 4)) : (50.0f + 110.0f * lane);
+    }
+
+    // Middlescroll (game_options_scroll == 2)
+    if (mustHit) {
+        int bfLane = (lane >= 4) ? (lane - 4) : lane;
+        return 475.0f + 110.0f * bfLane; // Boyfriend no centro da tela (1280px)
+    } else {
+        return 50.0f + 55.0f * lane;     // Dad no canto esquerdo (versão mini)
     }
 }
 
@@ -574,8 +589,8 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
         DrawTexture(uiAssets.texture, -5000, -5000, WHITE);
         DrawTexture(dad.icon, -5000, -5000, WHITE);
         DrawTexture(bf.icon, -5000, -5000, WHITE);
-        DrawTextEx(mainFont, "WARM", (Vector2) {-5000, -5000}, 32, 1, WHITE);
-        DrawTextEx(vcrFont, "WARM", (Vector2) {-5000, -5000}, 16, 1, WHITE);
+        //DrawTextEx(mainFont, "WARM", (Vector2) {-5000, -5000}, 32, 1, WHITE);
+        //DrawTextEx(vcrFont, "WARM", (Vector2) {-5000, -5000}, 16, 1, WHITE);
         EndDrawing();
         for(int i = 0; i < 10; i++) {
             UpdateMusicStream(inst);
