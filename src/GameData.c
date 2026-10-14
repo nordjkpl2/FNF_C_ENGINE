@@ -1,3 +1,4 @@
+/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 #include "GameData.h" 
 #include "Log.h"
 

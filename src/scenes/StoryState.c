@@ -1,7 +1,9 @@
+/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
+
 #include"scenes/AllScenes.h"
 #include"scenes/SongList.h"
 
-// Story: lista de weeks (estilo Psych), tracklist, dificuldade, campanha.
+// Story: lista de weeks tracklist, dificuldade, campanha.
 // DELETE apaga a week com confirmacao.
 
 static WeekEntry* weeks = NULL;

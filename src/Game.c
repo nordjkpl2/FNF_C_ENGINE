@@ -1,27 +1,28 @@
+/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 #include "std.h" 
 #include "Game.h"
 #include "GameData.h"
 #include "Log.h"
  
 RayGame game; 
-
+/* screen */
 static float dt; 
 static float zoom;
 static int width;
 static int height;
-
+/* fps */
 static float frametime; 
 static int targetFps;
 static char clearTexture; 
-
+/* music */
 Music gameMusic;
-
 static char playingMusic;
 static float musicVolume = 1.0f;
 static float volOsdTimer = 0;
+/* stretch (for remove border and fill window)*/
 static RenderTexture2D stretchTarget;
 static char stretchReady = 0;
-
+/* // * Music Codes */
 void RayGame_SetMusic(const char* path, float volume, char looping) { 
     gameMusic = LoadMusicStream(path);
 
@@ -67,7 +68,7 @@ int RayGame_CanvasWidth(void) {
 int RayGame_CanvasHeight(void) {
     return game_options_fillScreen ? 720 : height;
 }
-
+/* // Fps of Game */
 void RayGame_SetFPS(int fps) { 
     targetFps = fps;
     game_options_fps = fps; 
@@ -84,7 +85,7 @@ void RayGame_SetFPS(int fps) {
     frametime = 1.0f / (float) fps; 
     SetTargetFPS(fps);
 } 
-
+/* // Put Same Fps of Monitor (ex 144hz = 144frames per second)*/
 void RayGame_SetVsync(char on) {
     if(on) {
         SetWindowState(FLAG_VSYNC_HINT);
@@ -120,7 +121,7 @@ void RayGame_Start(const char* gameTitle) {
     stretchTarget = LoadRenderTexture(1280, 720);
     stretchReady = 1;
 }
-
+/* volume changer func */
 static void DrawOverlay(void) {
     DrawFPS(10, 3);
 
@@ -150,10 +151,10 @@ void RayGame_GameLoop() {
         // we do not want the game to move too fast if we are tabed out or something
         if(dt > frametime)
             dt = frametime; 
-        
+
         if(IsKeyPressed(KEY_F11))
             ToggleBorderlessWindowed();
-
+        /* Volume Changer using +- */
         if(IsKeyPressed(KEY_EQUAL) || IsKeyPressed(KEY_KP_ADD))
             RayGame_BumpMusicVolume(0.1f);
         if(IsKeyPressed(KEY_MINUS) || IsKeyPressed(KEY_KP_SUBTRACT))
@@ -214,7 +215,7 @@ void RayGame_GameLoop() {
     }  
 }  
 
-float RayGame_DeltaTime() { 
+float RayGame_DeltaTime() {
     return dt;
 }
 

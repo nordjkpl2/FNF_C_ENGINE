@@ -7,6 +7,71 @@ static float smooth(float a, float b, float c) {
     return Lerp(a, b, c * c * c * c);
 }
 
+// scroll style helpers (0=Normal, 1=Downscroll, 2=Middlescroll)
+// Coords em 1280x720; stretch/zoom aplicados pela camera.
+
+// Y do receptor por modo (0=Normal, 1=Downscroll, 2=Middlescroll)
+static float Scroll_StrumY(char mustHit) {
+    if (game_options_scroll == 2) {
+        // Middlescroll: BF e Dad no meio da tela (Y=55), +5 do normal
+        return 55.0f;
+    }
+    if (game_options_scroll == 1) {
+        // Downscroll (padrão FNF): AMBOS receptores em baixo (670), notas caem do topo
+        return 670.0f;
+    }
+    // Normal (padrão FNF upscroll): ambos receptores em cima (50), notas sobem da base
+    return 50.0f;
+}
+
+// Velocidade da nota: Downscroll desce (+), Normal/Middlescroll sobem (-)
+static float Scroll_NoteVelocity(void) {
+    if (game_options_scroll == 1) return 450.0f;   // Downscroll: desce (+)
+    return -450.0f; // Normal/Middlescroll: sobem (-)
+}
+
+// X da strumline
+static float Scroll_StrumX(int lane, char mustHit) {
+    if (game_options_scroll != 2) {
+        // Normal/Downscroll: posicoes tradicionais
+        return mustHit ? (700.0f + 110.0f * (lane - 4)) : (50.0f + 110.0f * lane);
+    }
+    // Middlescroll: BF no centro da tela (640), opponent mini no canto esquerdo
+    if (mustHit) {
+        // Boyfriend: 4 lanes centradas em 640, spacing 110
+        // lanes: 475, 585, 695, 805 (centrado em 640)
+        return 475.0f + 110.0f * lane;
+    } else {
+        // Opponent: 4 lanes no canto esquerdo, mini
+        return 50.0f + 55.0f * lane; // 50, 105, 160, 215
+    }
+}
+
+// Velocidade horizontal Middlescroll (lados -> centro)
+static float Scroll_NoteVelocityX(int lane, char mustHit) {
+    if (game_options_scroll != 2) return 0.0f;
+    float startX = mustHit ? (475.0f + 110.0f * lane) : (50.0f + 55.0f * lane);
+    float targetX = 640.0f; // centro da tela
+    // velocidade proporcional a distancia do centro (chega no mesmo tempo)
+    return (targetX - startX) * 0.003f * 60.0f;
+}
+
+// Start X Middlescroll
+static float Scroll_NoteStartX(int lane, char mustHit) {
+    if (game_options_scroll != 2) return 0.0f; // nao usado em normal/downscroll
+    return mustHit ? (475.0f + 110.0f * lane) : (50.0f + 55.0f * lane);
+}
+
+// Aliases para strumlines
+static float Scroll_PlayerStrumY(void) { return Scroll_StrumY(1); }
+static float Scroll_OppStrumY(void) { return Scroll_StrumY(0); }
+static float Scroll_ReceptorY(void) { return Scroll_PlayerStrumY(); }
+static float Scroll_OppStrumX(int lane) { return Scroll_StrumX(lane, 0); }
+static float Scroll_PlayerStrumX(int lane) { return Scroll_StrumX(lane + 4, 1); }
+
+// Strumline Y para compatibilidade antiga
+static float Scroll_StrumlineY(void) { return Scroll_StrumY(0); }
+
 // temporary placement probably
 typedef struct { 
     RayGraphicObject* objects;
@@ -96,10 +161,12 @@ static Camera2D camHUD;
 
 // miss sounds
 static Sound missSFX[3]; 
+static Sound hitSFX;
 
 // ui stuff 
 static Font vcrFont;
-static float bop; // used to resize the icons
+static float bop;
+static float bopT;
 static Color dadColor;
 static Color bfColor;
 
@@ -111,6 +178,9 @@ static float health; // 0 - 1, why would fnf use 0 - 2 ???
 static int score;
 static int lastScoreDrawn = -1;
 static char scoreBuf[32] = "Score: 0";
+static int misses;
+static int lastMissesDrawn = -1;
+static char missBuf[32] = "Misses: 0";
 static float lastVoiceSync = -10.0f;
 
 static float popupTimer;
@@ -174,9 +244,12 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
         spawnedSections = 0;
 
         bop = 1;
+        bopT = 1;
 
         score = 0;
         lastScoreDrawn = -1;
+        misses = 0;
+        lastMissesDrawn = -1;
         lastVoiceSync = -10.0f;
         audioWasPaused = 1; // streams start paused, first gameplay frame resumes
         health = 0.5f; 
@@ -270,21 +343,41 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
 
     // load strumlines
     {
-        const float strumlineY = 50;
-        const float strumShift = 110;
+        if (game_options_scroll == 2) {
+            // Middlescroll: BF no centro da tela (640), opponent mini no canto esquerdo
+            for(int i = 0; i < 4; i++) {
+                StrumNote *dadStrum = dadStrumline + i;
+                StrumNote_Load(dadStrum, i);
+                dadStrum->object.position.x = Scroll_StrumX(i, 0); // canto esquerdo
+                dadStrum->object.position.y = Scroll_StrumY(0); // Y=55
+                dadStrum->object.scaleX = 0.5f; // opponent menor
+                dadStrum->object.scaleY = 0.5f;
 
-        for(int i = 0; i < 4; i++) {
-            StrumNote *dadStrum = dadStrumline + i;
-            StrumNote_Load(dadStrum, i);
+                StrumNote *bfStrum = bfStrumline + i;
+                StrumNote_Load(bfStrum, i);
+                bfStrum->object.position.x = Scroll_StrumX(i + 4, 1); // centro
+                bfStrum->object.position.y = Scroll_StrumY(1); // Y=55 como normal
+                bfStrum->object.scaleX = 1.0f;
+                bfStrum->object.scaleY = 1.0f;
+            }
+        } else {
+            // Normal/Downscroll
+            const float strumlineY = Scroll_StrumlineY();
+            const float strumShift = 110;
 
-            StrumNote *bfStrum = bfStrumline + i;
-            StrumNote_Load(bfStrum, i);
+            for(int i = 0; i < 4; i++) {
+                StrumNote *dadStrum = dadStrumline + i;
+                StrumNote_Load(dadStrum, i);
 
-            dadStrum->object.position.y = strumlineY;
-            bfStrum->object.position.y = strumlineY;
+                StrumNote *bfStrum = bfStrumline + i;
+                StrumNote_Load(bfStrum, i);
 
-            dadStrum->object.position.x = 50 + strumShift * i;
-            bfStrum->object.position.x = 700 + strumShift * i;
+                dadStrum->object.position.y = Scroll_OppStrumY();
+                bfStrum->object.position.y = Scroll_PlayerStrumY();
+
+                dadStrum->object.position.x = Scroll_OppStrumX(i);
+                bfStrum->object.position.x = Scroll_PlayerStrumX(i);
+            }
         }
 
         Render_DefaultAnimated(&trail); 
@@ -309,10 +402,22 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
         else
             Song_LoadSongFromDir(&song, songDir);
 
+        // janela por diff: easy perdoa, hard aperta. Freeplay (diffSuf vazio) = normal.
+        if(strcmp(diffSuf, "easy") == 0)
+            Note_SetWindow(0.240f);
+        else if(strcmp(diffSuf, "hard") == 0)
+            Note_SetWindow(0.180f);
+        else
+            Note_SetWindow(0.200f);
+
         Girlfriend_Load(&gf, NULL /* default gf */);
         Character_Load(&dad, overrideP2[0] != 0 ? overrideP2 : song.player2, 1);
         Character_Load(&bf, song.player1, 0);
         Character_LoadDeathAnimations(&bf, song.player1, deathAnimations);
+        
+        // Usar cores do healthbar do JSON do personagem
+        dadColor = dad.healthColor;
+        bfColor = bf.healthColor;
 
         missSFX[0] = LoadSound("assets/sounds/missnote1.ogg");
         missSFX[1] = LoadSound("assets/sounds/missnote2.ogg");
@@ -320,6 +425,9 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
 
         for(int i = 0; i < 3; i++)
             SetSoundVolume(missSFX[i], 0.4f);
+
+        hitSFX = LoadSound("assets/sounds/hitosu!mania.ogg");
+        SetSoundVolume(hitSFX, 0.5f);
     }
 
     // load basic stage
@@ -468,7 +576,7 @@ static void BeatHit() {
     AnimatedObject_SetAnimation(&gf.object, gf.anims[gf.f]);
 
     if(game_options_bopIcons)
-        bop = 1.2f;
+        bopT = 0;
 
     if(songBeat.beat % 4 == 0) {
         camHUD.zoom += 0.03f * game_options_zoomFactorUI;
@@ -555,9 +663,14 @@ static void HitNote(Note* note) {
     popupTimer = 1.0f;
 	health = fminf(1, health + 0.0115f);
 
+    if(game_options_hitSound)
+        PlaySound(hitSFX);
+
     note->pressed = 1;
     bf.idleTimer = 0; 
 }
+
+static void GhostMiss(int lane);
 
 static void NoteHits() { 
     char pressed[4] = {0, 0, 0, 0}; 
@@ -573,6 +686,41 @@ static void NoteHits() {
         keyDown[i] = IsKeyDown(key);
         if(keyPressed[i])
             anyPressed = 1;
+    }
+
+    if(game_options_botplay)
+        goto AUTOPLAY;
+
+    // 1 = 50/50 lane-lock: engole lane sem nota hittable quando ha algo hittable.
+    // Video limpo: <- -> na janela => cima/baixo ficam idle, sem confirm e sem miss.
+    // Sem nada hittable (break) mantem press anim livre, sem miss.
+    if(game_options_ghost == 1 && anyPressed) {
+        char hittable[4] = {0, 0, 0, 0};
+        char anyHittable = 0;
+        for(size_t i = firstNote; i < noteCount; i++) {
+            Note* n = notes + i;
+            if(!n->mustHit || n->missed || n->pressed)
+                continue;
+            if(Note_TooEarly(n, songBeat.time))
+                break;
+            if(n->id < 0 || n->id > 3)
+                continue;
+            if(Note_CanBeHit(n, songBeat.time)) {
+                hittable[n->id] = 1;
+                anyHittable = 1;
+            }
+        }
+        if(anyHittable) {
+            anyPressed = 0;
+            for(int i = 0; i < 4; i++) {
+                if(keyPressed[i] && !hittable[i]) {
+                    keyPressed[i] = 0;
+                    keyDown[i] = 0;
+                }
+                if(keyPressed[i])
+                    anyPressed = 1;
+            }
+        }
     }
 
     if(!anyPressed)
@@ -607,7 +755,40 @@ static void NoteHits() {
         } 
     }
    
+    AUTOPLAY:
+    // botplay: acerta tudo sozinho, cai nos visuais do BRUH abaixo
+    if(game_options_botplay) {
+        for(size_t i = firstNote; i < noteCount; i++) {
+            Note* note = notes + i;
+
+            if(!note->mustHit || note->missed || note->pressed)
+                continue;
+
+            if(Note_TooEarly(note, songBeat.time))
+                break;
+
+            if(note->id < 0 || note->id > 3)
+                continue;
+
+            if(Note_CanBeHit(note, songBeat.time) && !pressed[note->id]) {
+                pressed[note->id] = 1;
+                HitNote(note);
+
+                AnimatedObject_SetAnimation(&bf.object, bf.animations.notes[note->id]);
+            }
+        }
+    }
+
     BRUH:
+
+    // 2 = Off (strict, sem ghost): press sem CanBeHit na mesma lane = miss.
+    // IsKeyPressed so vale 1 frame, entao 1 miss por aperto. Botplay pula.
+    if(game_options_ghost == 2 && !game_options_botplay) {
+        for(int i = 0; i < 4; i++) {
+            if(keyPressed[i] && !pressed[i])
+                GhostMiss(i);
+        }
+    }
 
     for(int i = 0; i < 4; i++) {
         StrumNote* strumNote = bfStrumline + i;
@@ -842,16 +1023,27 @@ static void PlayState_Update([[maybe_unused]] RayScene* scene) {
         NoteHits(); 
     }
 
-    if(IsKeyPressed(KEY_ENTER)) {
-        pauseTimer = -0.1f; // little cooldown
+    if(health >= 0 && IsKeyPressed(KEY_ENTER)) {
+        pauseTimer = -0.1f;
         isPaused = 1;
+        PauseMusicStream(inst);
+        Voices_Pause();
+        audioWasPaused = 1;
     }
 
     cameraTarget = target->object.position;
     cameraTarget.x += target->cameraOffset.x;
     cameraTarget.y += target->cameraOffset.y;
     
-    bop = Lerp(bop, 1, RayGame_DeltaTime() * 15.0f); 
+    // punch ease-out quad: soco rapido, assenta suave. Sem slide.
+    if(bopT < 1) {
+        bopT += RayGame_DeltaTime() * 3.5f;
+        if(bopT > 1) bopT = 1;
+    }
+    {
+        float k = 1 - bopT;
+        bop = 1 + 0.22f * k * k;
+    }
 
     camGame.target.x = Lerp(camGame.target.x, cameraTarget.x, RayGame_DeltaTime() * 5);
     camGame.target.y = Lerp(camGame.target.y, cameraTarget.y, RayGame_DeltaTime() * 5);
@@ -863,9 +1055,21 @@ static void MissNote(Note* note) {
     note->missed = 1;
     bf.idleTimer = 0;
 	health -= 0.02f;
+    misses++;
 
     PlaySound(missSFX[GetRandomValue(0, 2)]);
     AnimatedObject_SetAnimation(&bf.object, bf.missAnimations.notes[note->id]);
+}
+
+// ghost vazio (sem nota): mesmo custo do MissNote, sem flag de nota
+static void GhostMiss(int lane) {
+    if(lane < 0 || lane > 3) return;
+    bf.idleTimer = 0;
+    health -= 0.02f;
+    misses++;
+
+    PlaySound(missSFX[GetRandomValue(0, 2)]);
+    AnimatedObject_SetAnimation(&bf.object, bf.missAnimations.notes[lane]);
 }
 
 static void UpdateCharacterIdle(Character* character) {
@@ -943,39 +1147,47 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
             // cache hold keys once per frame (era IsKeyUp por sustain por frame)
             char holdDown[4];
             for(int k = 0; k < 4; k++)
-                holdDown[k] = IsKeyDown(game_scheme_keys[game_options_scheme][k]);
+            holdDown[k] = game_options_botplay || IsKeyDown(game_scheme_keys[game_options_scheme][k]);
 
-            char clearing = 1;
-            for(size_t i = firstNote; i < noteCount; i++) {
-                Note* note = notes + i;
+            while(firstNote < noteCount) {
+                Note* n = notes + firstNote;
+                    char resolved = (n->id < 0 || n->id > 3) || n->pressed || n->missed;
+                        float pxPast = (songBeat.time - (n->time + n->length)) * 450.0f * song.speed;
+                if(resolved && pxPast > 400.0f)
+                    firstNote++;
+                    else
+                break;
+}
 
-                if(note->id < 0 || note->id > 3) {
-                    if(clearing) {
-                        if(songBeat.time > note->time + note->length + 0.200f)
-                            firstNote++;
-                        else
-                            clearing = 0;
-                    }
-                    continue;
-                }
+for(size_t i = firstNote; i < noteCount; i++) {
+    Note* note = notes + i;
+
+    if(note->id < 0 || note->id > 3)
+        continue;
+
+    // lista ordenada: esta nota ja esta alem da tela => as proximas tambem
+    if((note->time - songBeat.time) * 450.0f * song.speed > 900.0f)
+        break;
 
                 StrumNote* targetStrumNote = (note->mustHit ? bfStrumline : dadStrumline) + note->id;
-                renderNote.position.y = targetStrumNote->object.position.y + 450 * (note->time - songBeat.time) * song.speed; 
                 
-                if(renderNote.position.y > 760)
-                    break;
-
-                // culling total acima da tela: pula draw mas mantem miss + clearing
-                float sustainEndY = renderNote.position.y + 450.0f * song.speed * note->length;
-                char fullyAbove = renderNote.position.y < -150 && (note->length <= 0 || sustainEndY < -100);
-                // nota normal ja apertada e fora da tela: so avanca clearing
-                if(fullyAbove && note->pressed) {
-                    if(clearing && songBeat.time > note->time + note->length + 0.200f)
-                        firstNote++;
-                    else if(clearing)
-                        clearing = 0;
-                    continue;
+                if (game_options_scroll == 2) {
+                    // Middlescroll: como normal, notas na posicao da strumline
+                    renderNote.position.x = targetStrumNote->object.position.x;
+                    renderNote.position.y = targetStrumNote->object.position.y - Scroll_NoteVelocity() * (note->time - songBeat.time) * song.speed;
+                } else {
+                    // Normal/Downscroll
+                    float vel = Scroll_NoteVelocity();
+                    renderNote.position.x = targetStrumNote->object.position.x;
+                    renderNote.position.y = targetStrumNote->object.position.y - vel * (note->time - songBeat.time) * song.speed; 
                 }
+                
+                // fora da tela (acima no normal/middle, abaixo no downscroll)
+                char fullyAbove = (game_options_scroll == 1) ? (renderNote.position.y > 900.0f)
+                                             : (renderNote.position.y < -200.0f);
+                // nota ja apertada, sem sustain restante e fora da tela: nada a desenhar
+                if(note->pressed && fullyAbove && songBeat.time >= note->time + note->length)
+                continue;
 
                 int headAnim = Note_Animation(note->id);
                 if(!renderNote.currentAnim.isValid || renderNote.currentAnim.animationIndex != headAnim)
@@ -1030,15 +1242,60 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
 
                         // geometric receptor clip: same visual as the old scissor,
                         // without flushing the GPU batch per sustain note
-                        {
+                        if (game_options_scroll == 2) {
+                            // Middlescroll: trail horizontal pro centro
+                            float receptorX = targetStrumNote->object.position.x + trailOffset.x;
+                            float trailRight = trail.position.x + trail.scaleX * 44.0f;
+                            float velX = Scroll_NoteVelocityX(note->id, note->mustHit);
+                            
+                            if (velX > 0) { // player: da direita pro centro
+                                if (trailRight > receptorX) {
+                                    trail.scaleX = fmaxf(0.0f, (trailRight - receptorX) / 44.0f);
+                                    trail.position.x = receptorX - trail.scaleX * 44.0f;
+                                }
+                                if (trail.scaleX > 0.0f)
+                                    Render_DrawAnimatedObject(&trail);
+                                if (trailRight >= receptorX)
+                                    Render_DrawAnimatedObject(&end);
+                            } else { // opponent: da esquerda pro centro (miniaturas)
+                                if (trail.position.x < receptorX) {
+                                    trail.scaleX = fmaxf(0.0f, (receptorX - trail.position.x) / 44.0f);
+                                }
+                                float origScaleX = trail.scaleX;
+                                float origScaleY = trail.scaleY;
+                                trail.scaleX *= 0.4f;
+                                trail.scaleY *= 0.4f;
+                                if(trail.scaleY > 0.0f)
+                                    Render_DrawAnimatedObject(&trail);
+                                trail.scaleX = trail.scaleX / 0.4f;
+                                trail.scaleY = trail.scaleY / 0.4f;
+                                if (trail.position.x <= receptorX) {
+                                    float origEndScaleX = end.scaleX;
+                                    float origEndScaleY = end.scaleY;
+                                    end.scaleX = origEndScaleX * 0.4f;
+                                    end.scaleY = origEndScaleY * 0.4f;
+                                    Render_DrawAnimatedObject(&end);
+                                    end.scaleX = origEndScaleX;
+                                    end.scaleY = origEndScaleY;
+                                }
+                            }
+                        } else if (game_options_scroll == 1) { // downscroll: receptor em baixo (670), trail vem de cima (vel > 0)
                             float receptorY = targetStrumNote->object.position.y + trailOffset.y;
                             float trailBottom = trail.position.y + trail.scaleY * 44.0f;
-
+                            if(trailBottom > receptorY) {
+                                trail.scaleY = fmaxf(0.0f, (receptorY - trail.position.y) / 44.0f);
+                            }
+                            if(trail.scaleY > 0.0f)
+                                Render_DrawAnimatedObject(&trail);
+                            if(trailBottom >= receptorY)
+                                Render_DrawAnimatedObject(&end);
+                        } else { // normal: receptor em cima (50), trail vem de baixo (vel < 0)
+                            float receptorY = targetStrumNote->object.position.y + trailOffset.y;
+                            float trailBottom = trail.position.y + trail.scaleY * 44.0f;
                             if(trail.position.y < receptorY) {
                                 trail.scaleY = fmaxf(0.0f, (trailBottom - receptorY) / 44.0f);
                                 trail.position.y = receptorY;
                             }
-
                             if(trail.scaleY > 0.0f)
                                 Render_DrawAnimatedObject(&trail);
                             if(trailBottom >= receptorY)
@@ -1065,19 +1322,29 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
                         MissNote(note);
                     }
 
-                    // no need to update frame because it is not animated:)
-                    // pula draw se totalmente fora da tela (economiza DrawTexturePro)
-                    if(!fullyAbove)
-                        Render_DrawAnimatedObject(&renderNote); 
+                    // notas: render sempre, sem culling agressivo
+                    // Middlescroll: opponent notes menores (miniaturas)
+                    if (game_options_scroll == 2 && !note->mustHit) {
+                        float origScaleX = renderNote.scaleX;
+                        float origScaleY = renderNote.scaleY;
+                        renderNote.scaleX = 0.4f;
+                        renderNote.scaleY = 0.4f;
+                        Render_DrawAnimatedObject(&renderNote);
+                        renderNote.scaleX = origScaleX;
+                        renderNote.scaleY = origScaleY;
+                    } else if (game_options_scroll == 1) {
+                        // Downscroll: notas ligeiramente menores
+                        float origScaleX = renderNote.scaleX;
+                        float origScaleY = renderNote.scaleY;
+                        renderNote.scaleX = 0.85f;
+                        renderNote.scaleY = 0.85f;
+                        Render_DrawAnimatedObject(&renderNote);
+                        renderNote.scaleX = origScaleX;
+                        renderNote.scaleY = origScaleY;
+                    } else {
+                        Render_DrawAnimatedObject(&renderNote);
+                    } 
                 }  
-
-                if(clearing) {
-                    if(songBeat.time > note->time + note->length + 0.200f && renderNote.position.y < -100) {
-                        firstNote++; 
-                    }
-                    else 
-                        clearing = 0;
-                }
             }  
 
             EndBlendMode(); 
@@ -1094,8 +1361,28 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
             float availableHeight = healthbar.height - healthbarPadding * 2;
             float middle = availableWidth * (1 - health);
             
-            DrawRectangle(offsetX, healthbar.y + healthbarPadding, (int) middle + 1 /* fix 1px gap */, availableHeight, dadColor);
-            DrawRectangle(offsetX + middle, healthbar.y + healthbarPadding, availableWidth * health, availableHeight, bfColor);
+            // ladrilhos claro/escuro: ~43 rects, sem alloc, batch-friendly
+            {
+                const float tileW = 14.0f;
+                int ti = 0;
+                for(float x = 0; x < availableWidth; x += tileW, ti++) {
+                    float tx1 = x + tileW;
+                    if(tx1 > availableWidth) tx1 = availableWidth;
+                    char dark = (ti & 1) != 0;
+                    if(x < middle) {
+                        float x1 = tx1 < middle ? tx1 : middle;
+                        Color c = dadColor;
+                        if(dark) { c.r = (unsigned char)(c.r * 0.78f); c.g = (unsigned char)(c.g * 0.78f); c.b = (unsigned char)(c.b * 0.78f); }
+                        DrawRectangle((int)(offsetX + x), (int)(healthbar.y + healthbarPadding), (int)(x1 - x), (int)availableHeight, c);
+                    }
+                    if(tx1 > middle) {
+                        float x0 = x > middle ? x : middle;
+                        Color c = bfColor;
+                        if(dark) { c.r = (unsigned char)(c.r * 0.78f); c.g = (unsigned char)(c.g * 0.78f); c.b = (unsigned char)(c.b * 0.78f); }
+                        DrawRectangle((int)(offsetX + x0), (int)(healthbar.y + healthbarPadding), (int)(tx1 - x0), (int)availableHeight, c);
+                    }
+                }
+            }
 
             // tempo atual / total no cantinho (numeros, sem barra)
             {
@@ -1120,25 +1407,48 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
                     lastScoreDrawn = score;
                 }
                 const float shadow = 1.5f;
-                
-                DrawTextEx(vcrFont, scoreBuf, (Vector2) {healthbar.x + healthbar.width - 170 + shadow, healthbar.y + 30 - shadow}, 16, 1, BLACK); 
-                DrawTextEx(vcrFont, scoreBuf, (Vector2) {healthbar.x + healthbar.width - 170, healthbar.y + 30}, 16, 1, WHITE);
+                // canto inferior direito, alinhado com o tempo (y=672/690, x=1270).
+                // pos antiga: healthbar.x + healthbar.width - 170, healthbar.y + 30/48.
+                {
+                    Vector2 ss = MeasureTextEx(vcrFont, scoreBuf, 16, 1);
+                    float sx = 1270 - ss.x;
+                    DrawTextEx(vcrFont, scoreBuf, (Vector2) {sx + shadow, 672 - shadow}, 16, 1, BLACK);
+                    DrawTextEx(vcrFont, scoreBuf, (Vector2) {sx, 672}, 16, 1, WHITE);
+                }
+
+                if(misses != lastMissesDrawn) {
+                    snprintf(missBuf, sizeof(missBuf), "Misses: %d", misses);
+                    lastMissesDrawn = misses;
+                }
+                {
+                    Vector2 ms = MeasureTextEx(vcrFont, missBuf, 16, 1);
+                    float mx = 1270 - ms.x;
+                    DrawTextEx(vcrFont, missBuf, (Vector2) {mx + shadow, 690 - shadow}, 16, 1, BLACK);
+                    DrawTextEx(vcrFont, missBuf, (Vector2) {mx, 690}, 16, 1, WHITE);
+                }
             }
 
             Rectangle frameRect = {0, 0, 150, 150}; 
+            float iconHalf = 75 * bop;
+            float iconCY = healthbar.y + healthbar.height / 2;
+            // cabecinha: sobe no beat e assenta, com sway oposto. Reusa bopT, +4 mults.
+            float kk = 1 - bopT;
+            kk *= kk;
+            float bobY = -7 * kk;
+            float sway = 4 * kk;
 
-            frameRect.x = (health > 0.9f) * 150;
+            // icons 150x150 imagem unica: frame 0 (frameRect.x=150 nao existe)
+            frameRect.x = 0;
             DrawTexturePro(dad.icon, frameRect, (Rectangle) {
-                .x = offsetX + middle + C - 150 * bop,
-                .y = healthbar.y + healthbar.height / 2 - bop * 150 / 2,
+                .x = offsetX + middle + C - 75 - iconHalf - sway,
+                .y = iconCY - iconHalf + bobY,
                 .width = 150 * bop,
                 .height = 150 * bop
             }, VECTOR_ZERO, 0, WHITE); 
  
-            frameRect.x = (health < 0.1f) * 150;
             DrawTexturePro(bf.icon, frameRect, (Rectangle) {
-                .x = offsetX + middle - C,
-                .y = healthbar.y + healthbar.height / 2 - bop * 150 / 2,
+                .x = offsetX + middle - C + 75 - iconHalf + sway,
+                .y = iconCY - iconHalf - bobY,
                 .width = 150 * bop,
                 .height = 150 * bop
             }, VECTOR_ZERO, 0, WHITE);
@@ -1216,6 +1526,8 @@ static void PlayState_Destroy([[maybe_unused]] RayScene* scene) {
 
     for(int i = 0; i < 3; i++)
         UnloadSound(missSFX[i]); 
+
+    UnloadSound(hitSFX);
 
     // move this maybe
     for(int i = 0; i < 4; i++)

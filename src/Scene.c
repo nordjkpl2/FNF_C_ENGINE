@@ -1,3 +1,4 @@
+/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 #include "Scene.h"
 
 void RayScene_Create(RayScene* scene, RaySceneFunctions functions) { 

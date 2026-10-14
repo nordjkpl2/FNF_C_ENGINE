@@ -1,6 +1,8 @@
+/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
+#pragma once
 #ifndef SONGLIST_H
 #define SONGLIST_H
-
+// ENTRY OF SONG ON LIST
 typedef struct {
     char name[64];
     char dir[256];

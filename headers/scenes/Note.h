@@ -1,14 +1,16 @@
+/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
+#pragma once
 #ifndef NOTE_H
 #define NOTE_H
-
+/* // ! Includes */
 #include "Render.h"
 #include "scenes/Song.h"
-
+/* // TODO : Estruturas de Informação de Nota, Tempo, Quando Invocar, Tamanho, Erro Etc*/
 typedef struct {
     RayAnimatedObject object;  
     int id;
 } StrumNote; // yuh
-
+/* // */
 typedef struct { 
     int id;
      
@@ -19,12 +21,12 @@ typedef struct {
     char pressed;
     char missed;
 } Note;
-
+/* // * Animações de Nota / Note Animations (NOT INCLUDE NOTE INIT AND END ANIMATIONS) */
 void StrumNote_Load(StrumNote* note, int id);
 int StrumNote_IdleAnimation(int id);
 int StrumNote_PressAnimation(int id);
 int StrumNote_ConfirmAnimation(int id);
-
+/* // * Note Load */
 void Note_Load(Note* note, DataNote* dataNote);
 
 // define skin atual da musica (chamado 1x no load da musica)
@@ -37,12 +39,12 @@ void NoteStuff_LoadAnimations(void);
 // janela de hit (setada 1x por musica via diffSuf; default 0.200 = normal)
 void Note_SetWindow(float w);
 float Note_Window(void);
-
+/* // ? Estruturas de Erro / Error Structures */
 char Note_CanBeHit(Note* note, float time);
 char Note_TooEarly(Note* note, float time);
 char Note_TooLate(Note* note, float time);
 char Note_ShouldHold(Note* note, float time); 
-
+/* // ? Note Invoke Animations (HERE INCLUDE NOTE INIT AND END ANIMATIONS)*/
 int Note_Animation(int id);
 int Note_TrailAnimation(int id);
 int Note_EndAnimation(int id);

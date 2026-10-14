@@ -1,2 +1,14 @@
 ~ $ cd "D:/dev/fnf c engine"
 gcc main.c $(find src -name "*.c") $(find lib -name "*.c") -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -flto -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O1 -s -DNDEBUG -fomit-frame-pointer
+
+> MENU
+//
+    STORY MODE 
+        src/scenes/StoryState.c
+    FREEPLAY
+        src/scenes/Freeplay.c
+    OPTIONS
+        src/scenes/OptionsMenu.c 
+    MODDING
+        src/scenes/ModdingState.c
+//

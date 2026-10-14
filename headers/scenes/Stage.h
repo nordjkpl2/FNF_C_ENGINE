@@ -1,10 +1,10 @@
+/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
+#pragma once
 #ifndef STAGE_H
 #define STAGE_H
-
 // Parser subset de stage .lua da Psych, sem LuaJIT/VM (so no load, zero por frame).
 // Cobre: makeLuaSprite, setLuaSpriteScrollFactor/setScrollFactor,
 // addLuaSprite, scaleObject/scaleLuaSprite. Ignora shaders/anim.
-
 // Retangulo de fundo p/ cobertura (sem tipos raylib: testavel isolado).
 typedef struct {
     float x, y; // posicao mundo (topo-esq)

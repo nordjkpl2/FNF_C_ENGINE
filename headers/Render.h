@@ -1,3 +1,5 @@
+/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
+#pragma once
 #ifndef RENDER_H
 #define RENDER_H
 

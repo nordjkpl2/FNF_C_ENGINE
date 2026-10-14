@@ -1,3 +1,5 @@
+/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
+
 #include"scenes/AllScenes.h"
 
 // Presents one loading frame, then runs the heavy PlayState load

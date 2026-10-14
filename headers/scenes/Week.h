@@ -1,6 +1,7 @@
+/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
+#pragma once
 #ifndef WEEK_H
 #define WEEK_H
-
 #define WEEK_MAX_SONGS 16
 
 typedef struct {

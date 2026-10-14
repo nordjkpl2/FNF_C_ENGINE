@@ -1,9 +1,9 @@
+/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
+#pragma once
 #ifndef MODIMPORT_H
 #define MODIMPORT_H
-
 #include <stddef.h>
-
-// Importador de mod estilo Psych p/ o layout da engine.
+// Importador de mod estilo Mods Psych p/ o layout da engine
 // TUDO fica dentro de dstRoot/<mod>/ (apagar a pasta desfaz o import;
 // nada vai p/ assets/ global).
 // Le: songs/<musica>/{Inst.ogg,Voices*.ogg} + data/<musica>/*.json,
@@ -13,9 +13,9 @@
 //     (o editor e o jogo procuram no mod antes do global).
 // Converte Sparrow .xml + animations[] do character .json em .animset
 // (o loader da engine nao muda; offsets vao do .json no load).
-// Ignora: events.json, .lua em data/, scripts/shaders/videos/custom_*,
+// Ignora (por enquanto né): events.json, .lua em data/, scripts/shaders/videos/custom_*,
 // music/sounds/fonts (sem runtime Lua/shader/video/menu-music na engine).
-// Roda uma vez por acao do usuario (fora do hot path).
+// Roda uma vez por acao do usuario (no import mod menu em Modding>) (fora do hot path).
 typedef struct {
     int songs;
     int charts;
@@ -36,7 +36,7 @@ typedef struct {
 // msg recebe resumo legivel. Retorna 1 = ok (mesmo parcial), 0 = falha.
 char ModImport_Run(const char* srcMod, const char* dstRoot,
     const char* modName, char* msg, size_t msgSize, ModImportStats* stats);
-
+    
 // Uso atual de dstRoot (nº de mods, musicas, bytes). Sempre retorna 1.
 typedef struct {
     int mods;

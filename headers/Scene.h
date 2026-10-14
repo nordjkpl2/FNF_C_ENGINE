@@ -1,3 +1,5 @@
+/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
+#pragma once
 #ifndef SCENE_H
 #define SCENE_H
 

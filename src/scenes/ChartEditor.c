@@ -1,3 +1,5 @@
+/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
+
 #include"scenes/AllScenes.h"
 #include"scenes/Song.h"
 #include"scenes/SongList.h"

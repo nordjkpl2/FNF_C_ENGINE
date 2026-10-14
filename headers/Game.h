@@ -1,9 +1,11 @@
+/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
+#pragma once
 #ifndef GAME_H
 #define GAME_H
 
 #include "std.h"
 #include "Scene.h"
-
+/* // OpenGL Version */
 #define GLSL_VERSION 330
 
 typedef struct RayGame RayGame;
