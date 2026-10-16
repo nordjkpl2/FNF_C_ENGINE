@@ -3,6 +3,7 @@
 #include"scenes/Character.h"
 #include"scenes/Note.h"
 #include"scenes/Song.h"
+//!OUTD day16/10/2026
 
 static float smooth(float a, float b, float c) {
     return Lerp(a, b, c * c * c * c);
@@ -20,83 +21,14 @@ static float smooth(float a, float b, float c) {
 /* //(#FF5733) Line 689 AutoPlay NoteHits e If Pressed */
 /* //(#00ffff)i Line 1415 Tempo */
 /* //(#3498DB) Line 1369 Renderização da Barra de Vida line 1448 iconsw*/
-// Y do receptor por modo (0=Normal, 1=Downscroll, 2=Middlescroll)
-static float Scroll_StrumY(char mustHit) {
-    if (game_options_scroll == 2) {
-        // Middlescroll: BF e Dad no meio da tela (Y=55), +5 do normal antes tava 55.0f
-        return 20.0f;
-    }
-    if (game_options_scroll == 1) {
-        // Downscroll (padrão FNF): AMBOS receptores em baixo (670), notas caem do topo
-        return 670.0f;
-    }
-    // Normal (padrão FNF upscroll): ambos receptores em cima (50), notas sobem da base
-    return 50.0f;
-}
+/*
+    // ! BLOCO NOVO  
+*/
+// ~ 1. StrumLines 
+// ? 2. Vozes
+// ^ 3. PlayState
+    // ^ 3.1 Gui
 
-// Velocidade da nota: Downscroll desce (+), Normal/Middlescroll sobem (-)
-static float Scroll_NoteVelocity(void) {
-    if (game_options_scroll == 1) return 450.0f;   // Downscroll: desce (+)
-    return -450.0f; // Normal/Middlescroll: sobem (-)
-}
-
-// X da strumline
-/*static float Scroll_StrumX(int lane, char mustHit) {
-    if (game_options_scroll != 2) {
-        // Normal/Downscroll: posicoes tradicionais
-        return mustHit ? (700.0f + 110.0f * (lane - 4)) : (50.0f + 110.0f * lane);
-    }
-    // Middlescroll: BF no centro da tela (640), opponent mini no canto esquerdo
-    if (mustHit) {
-        // Boyfriend: 4 lanes centradas em 640, spacing 110
-        // lanes: 475, 585, 695, 805 (centrado em 640)
-        return 475.0f + 110.0f * lane;
-    } else {
-        // Opponent: 4 lanes no canto esquerdo, mini
-        return 50.0f + 55.0f * lane; // 50, 105, 160, 215
-    }
-}*/
-static float Scroll_StrumX(int lane, char mustHit) {
-    if (game_options_scroll != 2) {
-        // Normal / Downscroll (posição padrão)
-        return mustHit ? (700.0f + 110.0f * (lane - 4)) : (50.0f + 110.0f * lane);
-    }
-
-    // Middlescroll (game_options_scroll == 2)
-    if (mustHit) {
-        int bfLane = (lane >= 4) ? (lane - 4) : lane;
-        return 475.0f + 110.0f * bfLane; // Boyfriend no centro da tela (1280px)
-    } else {
-        return 50.0f + 55.0f * lane;     // Dad no canto esquerdo (versão mini)
-    }
-}
-
-// Velocidade horizontal Middlescroll (lados -> centro)
-static float Scroll_NoteVelocityX(int lane, char mustHit) {
-    if (game_options_scroll != 2) return 0.0f;
-    float startX = mustHit ? (475.0f + 110.0f * lane) : (50.0f + 55.0f * lane);
-    float targetX = 640.0f; // centro da tela
-    // velocidade proporcional a distancia do centro (chega no mesmo tempo)
-    return (targetX - startX) * 0.003f * 60.0f;
-}
-
-// Start X Middlescroll
-static float Scroll_NoteStartX(int lane, char mustHit) {
-    if (game_options_scroll != 2) return 0.0f; // nao usado em normal/downscroll
-    return mustHit ? (475.0f + 110.0f * lane) : (50.0f + 55.0f * lane);
-}
-
-// Aliases para strumlines
-static float Scroll_PlayerStrumY(void) { return Scroll_StrumY(1); }
-static float Scroll_OppStrumY(void) { return Scroll_StrumY(0); }
-static float Scroll_ReceptorY(void) { return Scroll_PlayerStrumY(); }
-static float Scroll_OppStrumX(int lane) { return Scroll_StrumX(lane, 0); }
-static float Scroll_PlayerStrumX(int lane) { return Scroll_StrumX(lane + 4, 1); }
-
-// Strumline Y para compatibilidade antiga
-static float Scroll_StrumlineY(void) { return Scroll_StrumY(0); }
-
-// temporary placement probably
 typedef struct { 
     RayGraphicObject* objects;
     float defaultCameraZoom;
@@ -216,8 +148,88 @@ static char isPaused;
 static int currentOption;
 static float optionOffset;
 static float pauseTimer;
+// ~ 1. StrumLines  
+// Y do receptor por modo (0=Normal, 1=Downscroll, 2=Middlescroll)
+static float Scroll_StrumY(char mustHit) {
+    if (game_options_scroll == 2) {
+        // Middlescroll: BF e Dad no meio da tela (Y=55), +5 do normal antes tava 55.0f
+        return 20.0f;
+    }
+    if (game_options_scroll == 1) {
+        // Downscroll (padrão FNF): AMBOS receptores em baixo (670), notas caem do topo
+        return 670.0f;
+    }
+    // Normal (padrão FNF upscroll): ambos receptores em cima (50), notas sobem da base
+    return 50.0f;
+}
+
+// Velocidade da nota: Downscroll desce (+), Normal/Middlescroll sobem (-)
+static float Scroll_NoteVelocity(void) {
+    if (game_options_scroll == 1) return 450.0f;   // Downscroll: desce (+)
+    return -450.0f; // Normal/Middlescroll: sobem (-)
+}
+
+// X da strumline
+/*static float Scroll_StrumX(int lane, char mustHit) {
+    if (game_options_scroll != 2) {
+        // Normal/Downscroll: posicoes tradicionais
+        return mustHit ? (700.0f + 110.0f * (lane - 4)) : (50.0f + 110.0f * lane);
+    }
+    // Middlescroll: BF no centro da tela (640), opponent mini no canto esquerdo
+    if (mustHit) {
+        // Boyfriend: 4 lanes centradas em 640, spacing 110
+        // lanes: 475, 585, 695, 805 (centrado em 640)
+        return 475.0f + 110.0f * lane;
+    } else {
+        // Opponent: 4 lanes no canto esquerdo, mini
+        return 50.0f + 55.0f * lane; // 50, 105, 160, 215
+    }
+}*/
+static float Scroll_StrumX(int lane, char mustHit) {
+    if (game_options_scroll != 2) {
+        // Normal / Downscroll (posição padrão)
+        return mustHit ? (700.0f + 110.0f * (lane - 4)) : (50.0f + 110.0f * lane);
+    }
+
+    // Middlescroll (game_options_scroll == 2)
+    if (mustHit) {
+        int bfLane = (lane >= 4) ? (lane - 4) : lane;
+        return 475.0f + 110.0f * bfLane; // Boyfriend no centro da tela (1280px)
+    } else {
+        return 50.0f + 55.0f * lane;     // Dad no canto esquerdo (versão mini)
+    }
+}
+
+// Velocidade horizontal Middlescroll (lados -> centro)
+static float Scroll_NoteVelocityX(int lane, char mustHit) {
+    if (game_options_scroll != 2) return 0.0f;
+    float startX = mustHit ? (475.0f + 110.0f * lane) : (50.0f + 55.0f * lane);
+    float targetX = 640.0f; // centro da tela
+    // velocidade proporcional a distancia do centro (chega no mesmo tempo)
+    return (targetX - startX) * 0.003f * 60.0f;
+}
+
+// Start X Middlescroll
+static float Scroll_NoteStartX(int lane, char mustHit) {
+    if (game_options_scroll != 2) return 0.0f; // nao usado em normal/downscroll
+    return mustHit ? (475.0f + 110.0f * lane) : (50.0f + 55.0f * lane);
+}
+
+// Aliases para strumlines
+static float Scroll_PlayerStrumY(void) { return Scroll_StrumY(1); }
+static float Scroll_OppStrumY(void) { return Scroll_StrumY(0); }
+static float Scroll_ReceptorY(void) { return Scroll_PlayerStrumY(); }
+static float Scroll_OppStrumX(int lane) { return Scroll_StrumX(lane, 0); }
+static float Scroll_PlayerStrumX(int lane) { return Scroll_StrumX(lane + 4, 1); }
+
+// Strumline Y para compatibilidade antiga
+static float Scroll_StrumlineY(void) { return Scroll_StrumY(0); }
+
+// temporary placement probably
 
 static void UpdateSection(); 
+
+//(#3498DB) 2. Vozes
 
 // voz: Voices.ogg unico (par separado so abre no editor/import)
 static void Voices_Load(void) {
@@ -256,6 +268,8 @@ static void Voices_Unload(void) {
         UnloadMusicStream(voices);
     hasVoices = 0;
 }
+
+// ^ 3. PlayState
 
 static void PlayState_Create([[maybe_unused]] RayScene* scene) {
     
@@ -352,16 +366,17 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
     }
 
     // load random stuff
+    // ^ 3.1 Gui
     { 
         vcrFont = LoadFontEx("assets/fonts/vcr.ttf", 32, 0, 0); 
         SetTextureFilter(vcrFont.texture, TEXTURE_FILTER_BILINEAR);
 
         healthbarPadding = 4;
         
-        healthbar.width = 601;
-        healthbar.height = 19;
-        healthbar.x = 1280 / 2 - healthbar.width / 2; 
-        healthbar.y = 640;
+        healthbar.width = 600; // tava 601
+        healthbar.height = 17; // tava 19
+        healthbar.x = 1200 / 2 - healthbar.width / 2; // tava 1280
+        healthbar.y = 600; // tava 601 ou 701
         // cores padrão do bf e dad
         dadColor = (Color) { 204, 85, 180, 255 }; // roxo mais rosa
         //{ 175, 102, 206, 255 }; // roxo
@@ -1205,17 +1220,17 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
                     firstNote++;
                     else
                 break;
-}
+                }
 
-for(size_t i = firstNote; i < noteCount; i++) {
-    Note* note = notes + i;
+            for(size_t i = firstNote; i < noteCount; i++) {
+                    Note* note = notes + i;
 
-    if(note->id < 0 || note->id > 3)
-        continue;
+                if(note->id < 0 || note->id > 3)
+                continue;
 
-    // lista ordenada: esta nota ja esta alem da tela => as proximas tambem
-    if((note->time - songBeat.time) * 450.0f * song.speed > 900.0f)
-        break;
+            // lista ordenada: esta nota ja esta alem da tela => as proximas tambem
+            if((note->time - songBeat.time) * 450.0f * song.speed > 900.0f)
+                break;
 
                 StrumNote* targetStrumNote = (note->mustHit ? bfStrumline : dadStrumline) + note->id;
                 
@@ -1397,18 +1412,8 @@ for(size_t i = firstNote; i < noteCount; i++) {
 
             EndBlendMode(); 
         }
-
-
         // healthbar rendering
-        { 
-            const int C = 25; // this pushes the icons closer to each other
-            DrawRectangleRec(healthbar, BLACK); 
-
-            float offsetX = healthbar.x + healthbarPadding;
-            float availableWidth = healthbar.width - healthbarPadding * 2; 
-            float availableHeight = healthbar.height - healthbarPadding * 2;
-            float middle = availableWidth * (1 - health);
-
+/*
             // & ladrilhos claro/escuro: ~43 rects, sem alloc, batch-friendly
             {
                 const float tileW = 150.0f; // tava 14, 27 o trilhado 50/50
@@ -1431,7 +1436,6 @@ for(size_t i = firstNote; i < noteCount; i++) {
                     }
                 }
             }
-
             // tempo atual / total no cantinho (numeros, sem barra)
             {
                 float t = songBeat.time;
@@ -1448,6 +1452,47 @@ for(size_t i = firstNote; i < noteCount; i++) {
                 tpos.y += tsh;
                 DrawTextEx(vcrFont, timeBuf, tpos, 16, 1, WHITE);
             }
+            */
+           // tempo atual / total centralizado no topo (convenção clássica)
+        // healthbar rendering (ultra leve, sem ladrilhos)
+// healthbar rendering (ultra leve, sem ladrilhos)
+{ 
+            const int C = 35; // espaçamento dos ícones
+            DrawRectangleRec(healthbar, BLACK); 
+
+            float offsetX = healthbar.x + healthbarPadding;
+            float availableWidth = healthbar.width - healthbarPadding * 2; 
+            float availableHeight = healthbar.height - healthbarPadding * 2;
+            float middle = availableWidth * (1 - health);
+
+            // Desenha apenas dois retângulos sólidos (lado do Dad e lado do BF)
+            if(middle > 0) {
+                DrawRectangle((int)offsetX, (int)(healthbar.y + healthbarPadding), (int)middle, (int)availableHeight, dadColor);
+            }
+            if(middle < availableWidth) {
+                DrawRectangle((int)(offsetX + middle), (int)(healthbar.y + healthbarPadding), (int)(availableWidth - middle), (int)availableHeight, bfColor);
+            }
+
+            // tempo atual / total centralizado no topo (convenção clássica)
+            {
+                float t = songBeat.time;
+                if(t < 0) t = 0;
+                float total = GetMusicTimeLength(inst);
+                if(total < 0) total = 0;
+                char timeBuf[32];
+                snprintf(timeBuf, sizeof(timeBuf), "%d:%02d / %d:%02d",
+                    (int)(t / 60), (int)t % 60, (int)(total / 60), (int)total % 60);
+                
+                const float fontSize = 20.0f;
+                const float tsh = 1.5f;
+                Vector2 textSize = MeasureTextEx(vcrFont, timeBuf, fontSize, 1);
+                Vector2 tpos = {(1200.0f / 2.0f) - (textSize.x / 2.0f) + tsh, 15.0f};
+                
+                DrawTextEx(vcrFont, timeBuf, tpos, fontSize, 1, BLACK);
+                tpos.x -= tsh;
+                tpos.y += tsh;
+                DrawTextEx(vcrFont, timeBuf, tpos, fontSize, 1, WHITE);
+            }
 
             if(game_options_showScore) {
                 if(score != lastScoreDrawn) {
@@ -1455,8 +1500,6 @@ for(size_t i = firstNote; i < noteCount; i++) {
                     lastScoreDrawn = score;
                 }
                 const float shadow = 1.5f;
-                // canto inferior direito, alinhado com o tempo (y=672/690, x=1270).
-                // pos antiga: healthbar.x + healthbar.width - 170, healthbar.y + 30/48.
                 {
                     Vector2 ss = MeasureTextEx(vcrFont, scoreBuf, 16, 1);
                     float sx = 1270 - ss.x;
@@ -1479,19 +1522,17 @@ for(size_t i = firstNote; i < noteCount; i++) {
             Rectangle frameRect = {0, 0, 150, 150}; 
             float iconHalf = 75 * bop;
             float iconCY = healthbar.y + healthbar.height / 2;
-            // sway oposto. Reusa bopT, +4 mults.
             float kk = 1 - bopT;
             kk *= kk;
             float bobY = -7 * kk;
             float sway = 4 * kk;
 
-            // icons 150x150 imagem unica: frame 0 (frameRect.x=150 nao existe)
             frameRect.x = 0;
             DrawTexturePro(dad.icon, frameRect, (Rectangle) {
                 .x = offsetX + middle + C - 75 - iconHalf - sway,
                 .y = iconCY - iconHalf + bobY,
                 .width = 130 * bop,
-                .height = 130 * bop //tava 150 aqui vou mecher memo, os icone mo grande se ta doido, 145
+                .height = 130 * bop
             }, VECTOR_ZERO, 0, WHITE); 
  
             DrawTexturePro(bf.icon, frameRect, (Rectangle) {
@@ -1500,7 +1541,7 @@ for(size_t i = firstNote; i < noteCount; i++) {
                 .width = 145 * bop,
                 .height = 145 * bop
             }, VECTOR_ZERO, 0, WHITE);
-        } 
+        }
 
         if(songBeat.time < 0) 
             Render_DrawAnimatedObject(&introText);
@@ -1513,12 +1554,12 @@ for(size_t i = firstNote; i < noteCount; i++) {
             Render_DrawAnimatedObject(&popupObj);
             popupTimer -= RayGame_DeltaTime();
         }
-    }
-
+    } // Fecha o bloco Render_SetCamera(&camHUD)
+    
     if(isPaused)
         PauseMenu_Update(scene);
     Render_StopCamera();  
-}
+} // Fecha a função PlayState_Destroy? Não, fecha a PlayState_Draw!
 
 void PlayState_SetSong(char* song) {
     snprintf(songDir, sizeof(songDir), "assets/songs/%s", song);
