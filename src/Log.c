@@ -9,6 +9,8 @@
 
 // write() direto no fileno: sem buffer stdio, sem locale, sem lock.
 // Vale no Windows (MinGW mapeia pro CRT) e no resto.
+//====
+// ^ funções públicas que não tem log no nome
 static void RawWrite(int fd, const char* s, size_t n) {
     while(n > 0) {
         long w = (long)write(fd, s, n);
@@ -25,6 +27,17 @@ static void Emit(int fd, const char* msg) {
     RawWrite(fd, "\n", 1);
 }
 
+static void EmitF(int fd, int fatal, const char* fmt, va_list ap) {
+    char buf[512];
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    Emit(fd, buf);
+    if(fatal)
+        exit(1);
+}
+
+//==============
+// ^ funções que tem log no nome
+
 void Log_Info(const char* msg) {
     Emit(fileno(stdout), msg);
 }
@@ -36,14 +49,6 @@ void Log_Error(const char* msg) {
 void Log_Fatal(const char* msg) {
     Emit(fileno(stderr), msg);
     exit(1);
-}
-
-static void EmitF(int fd, int fatal, const char* fmt, va_list ap) {
-    char buf[512];
-    vsnprintf(buf, sizeof(buf), fmt, ap);
-    Emit(fd, buf);
-    if(fatal)
-        exit(1);
 }
 
 void Log_ErrorF(const char* fmt, ...) {

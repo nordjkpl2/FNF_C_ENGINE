@@ -22,7 +22,8 @@ static float volOsdTimer = 0;
 /* stretch (for remove border and fill window)*/
 static RenderTexture2D stretchTarget;
 static char stretchReady = 0;
-/* // * Music Codes */
+/* // * 1. Gerenciador de Música e Áudio */
+// todo, 2. Configurações de Tela Fps e Setup
 void RayGame_SetMusic(const char* path, float volume, char looping) { 
     gameMusic = LoadMusicStream(path);
 
@@ -41,7 +42,7 @@ void RayGame_ResetMusic() {
     SeekMusicStream(gameMusic, 0.0f);
     PlayMusicStream(gameMusic);
 }
-
+// todo, Configurações de Tela Fps e Setup
 // volume geral das musicas (0 = mudo), vale pra atual e pras proximas
 void RayGame_BumpMusicVolume(float delta) {
     musicVolume += delta;

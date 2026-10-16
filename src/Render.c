@@ -6,6 +6,9 @@ static Vector2 zero = {0, 0};
 static Camera2D* targetCamera = NULL;
 // Renderização de Camera
 // DO NOT CHANGE THE ZOOM WHILE RENDERING THE CAMERA
+// ==========================================
+// CÂMERA, TEXTURAS E DEFAULTS (VIDA)
+// ========================================== yeeea
 void Render_SetCamera(Camera2D* camera) {
     targetCamera = camera; 
     
@@ -14,7 +17,7 @@ void Render_SetCamera(Camera2D* camera) {
 
     BeginMode2D(*camera);  
 }
-
+// para a camera
 void Render_StopCamera() {
     if(targetCamera != NULL) {
         targetCamera->zoom /= RayGame_ZoomFactor();
@@ -23,11 +26,44 @@ void Render_StopCamera() {
     }
     EndMode2D();
 }
-
+// sets default pra função de camera
 void Render_DefaultCamera(Camera2D* cam) {
     cam->zoom = 1;
     cam->target = (Vector2) {1280 / 2, 720 / 2};
 }
+// Carrega e Renderiza Textura
+Texture2D Render_LoadTexture(const char* path) { 
+    Image img = LoadImage(path); 
+    
+    Texture2D txt = LoadTextureFromImage(img); 
+    SetTextureFilter(txt, TEXTURE_FILTER_BILINEAR);
+    SetTextureWrap(txt, TEXTURE_WRAP_CLAMP); 
+    UnloadImage(img);
+
+    return txt;
+}
+// Valores Iniciais dos Objetos de Gráfico
+void Render_DefaultRGT(RayGraphicObject* obj) {
+    obj->position = zero; 
+    obj->rotation = 0;
+    obj->scaleX = 1;
+    obj->scaleY = 1;
+    obj->objType = RGT_RECTANGLE;
+    obj->scrollFactor = (Vector2) {1, 1};
+    obj->color = WHITE;
+}
+// Animação Default
+void Render_DefaultAnimated(RayAnimatedObject* obj) {
+    obj->position = zero;
+    obj->scaleX = 1;
+    obj->scaleY = 1;
+    obj->rotation = 0; 
+    obj->color = WHITE;
+    obj->scrollFactor = (Vector2) {1, 1};
+    obj->currentAnim.isValid = 0;
+}
+// ==========================================
+// 2: RENDERIZAÇÃO E GUI (desenho de gui)
 // Desenha Os Objetos
 void Render_DrawGraphicObject(RayGraphicObject* obj) {
     Vector2 scrollOffset = zero;
@@ -89,6 +125,21 @@ Vector2 GraphicObject_Sizes(RayGraphicObject* obj) {
     
     return (Vector2) { basic.x * obj->scaleX, basic.y * obj->scaleY };
 }
+// Tamanhos dos Objetos que se movem com Animação
+Vector2 AnimatedObject_Sizes(RayAnimatedObject* obj) {
+    if(!obj->currentAnim.isValid)
+        return zero;
+    
+    RayAnimation* currentAnimation = obj->currentAnim.animationIndex + obj->animationSet.animations;
+    Frame* currentFrame = obj->currentAnim.currentFrame + currentAnimation->frames;
+
+    return (Vector2) {
+        .x = currentFrame->w * obj->scaleX,
+        .y = currentFrame->h * obj->scaleY
+    };
+}
+// ==========================================
+// 3: ANIMAÇÃO E ESTADOS (logica)
 // Update do Frame de Objetos com Texturas
 void AnimatedObject_UpdateFrame(RayAnimatedObject* obj) {
     if(!obj->currentAnim.isValid)
@@ -117,19 +168,6 @@ char AnimatedObject_FinishedAnimation(RayAnimatedObject* obj) {
     RayAnimation* currentAnimation = obj->currentAnim.animationIndex + obj->animationSet.animations;
     return obj->currentAnim.currentFrame == currentAnimation->frameCount - 1;
 }
-// Tamanhos dos Objetos que se movem com Animação
-Vector2 AnimatedObject_Sizes(RayAnimatedObject* obj) {
-    if(!obj->currentAnim.isValid)
-        return zero;
-    
-    RayAnimation* currentAnimation = obj->currentAnim.animationIndex + obj->animationSet.animations;
-    Frame* currentFrame = obj->currentAnim.currentFrame + currentAnimation->frames;
-
-    return (Vector2) {
-        .x = currentFrame->w * obj->scaleX,
-        .y = currentFrame->h * obj->scaleY
-    };
-}
 // Troca entre animações (depois do codigo acima que atualiza os frames)
 void AnimatedObject_SetAnimation(RayAnimatedObject* obj, int animation) {
     obj->currentAnim = (RayAnimationState) {
@@ -138,35 +176,4 @@ void AnimatedObject_SetAnimation(RayAnimatedObject* obj, int animation) {
         .currentFrame = 0,
         .time = 0
     };
-}
-// Carrega e Renderiza Textura
-Texture2D Render_LoadTexture(const char* path) { 
-    Image img = LoadImage(path); 
-    
-    Texture2D txt = LoadTextureFromImage(img); 
-    SetTextureFilter(txt, TEXTURE_FILTER_BILINEAR);
-    SetTextureWrap(txt, TEXTURE_WRAP_CLAMP); 
-    UnloadImage(img);
-
-    return txt;
-}
-// Valores Iniciais dos Objetos de Gráfico
-void Render_DefaultRGT(RayGraphicObject* obj) {
-    obj->position = zero; 
-    obj->rotation = 0;
-    obj->scaleX = 1;
-    obj->scaleY = 1;
-    obj->objType = RGT_RECTANGLE;
-    obj->scrollFactor = (Vector2) {1, 1};
-    obj->color = WHITE;
-}
-// Animação Default
-void Render_DefaultAnimated(RayAnimatedObject* obj) {
-    obj->position = zero;
-    obj->scaleX = 1;
-    obj->scaleY = 1;
-    obj->rotation = 0; 
-    obj->color = WHITE;
-    obj->scrollFactor = (Vector2) {1, 1};
-    obj->currentAnim.isValid = 0;
 }

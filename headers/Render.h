@@ -5,7 +5,8 @@
 
 #include "std.h" 
 
-#define ADD_VEC(a, b) (Vector2) {a.x + b.x, a.y + b.y}
+//#define ADD_VEC(a, b) (Vector2) {a.x + b.x, a.y + b.y}
+#define ADD_VEC(a, b) ((Vector2){ (a).x + (b).x, (a).y + (b).y })
 
 typedef enum {
     RGT_CIRCLE,

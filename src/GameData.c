@@ -23,6 +23,14 @@ int     game_options_fps;
 float   game_options_zoomFactorUI;
 float   game_options_zoomFactorGAME;
 
+const char* game_available_schemes[4] = {"Arrows", "WASD", "DFJK", "ASKL"};
+const int   game_scheme_keys[4][4] = {
+    {KEY_LEFT, KEY_DOWN, KEY_UP, KEY_RIGHT},
+    {KEY_A, KEY_S, KEY_W, KEY_D},
+    {KEY_D, KEY_F, KEY_J, KEY_K},
+    {KEY_A, KEY_S, KEY_K, KEY_L}
+};
+
 static FILE* saveFile;
 
 #define SAVE_VERSION 4
@@ -161,14 +169,6 @@ void GameData_Start(void) {
 
     GameData_Checks();
 }
-
-const char* game_available_schemes[4] = {"Arrows", "WASD", "DFJK", "ASKL"};
-const int   game_scheme_keys[4][4] = {
-    {KEY_LEFT, KEY_DOWN, KEY_UP, KEY_RIGHT},
-    {KEY_A, KEY_S, KEY_W, KEY_D},
-    {KEY_D, KEY_F, KEY_J, KEY_K},
-    {KEY_A, KEY_S, KEY_K, KEY_L}
-};
 
 void GameData_Flush(void) {  
     rewind(saveFile);
