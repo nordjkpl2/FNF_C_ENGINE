@@ -19,7 +19,7 @@ static float smooth(float a, float b, float c) {
 /* // ^ Line 650 Hit Notes (bad etc)*/
 /* //(#FF5733) Line 689 AutoPlay NoteHits e If Pressed */
 /* //(#00ffff)i Line 1415 Tempo */
-/* //(#3498DB) Line 1369 Renderização da Barra de Vida */
+/* //(#3498DB) Line 1369 Renderização da Barra de Vida line 1448 iconsw*/
 // Y do receptor por modo (0=Normal, 1=Downscroll, 2=Middlescroll)
 static float Scroll_StrumY(char mustHit) {
     if (game_options_scroll == 2) {
@@ -782,7 +782,7 @@ static void NoteHits() {
             }
         } 
     }
-   
+/* 
     AUTOPLAY:
     // botplay: acerta tudo sozinho, cai nos visuais do BRUH abaixo
     if(game_options_botplay) {
@@ -802,6 +802,26 @@ static void NoteHits() {
                 pressed[note->id] = 1;
                 HitNote(note);
 
+                AnimatedObject_SetAnimation(&bf.object, bf.animations.notes[note->id]);
+            }
+        }
+    }
+*/
+    AUTOPLAY:
+    if(game_options_botplay) {
+        for(size_t i = firstNote; i < noteCount; i++) {
+            Note* note = notes + i;
+
+            if(!note->mustHit || note->missed || note->pressed)
+                continue;
+
+            if(note->id < 0 || note->id > 3)
+                continue;
+
+            // Se estiver dentro da janela de hit, o botplay acerta instantaneamente
+            if(Note_CanBeHit(note, songBeat.time) && !pressed[note->id]) {
+                pressed[note->id] = 1;
+                HitNote(note);
                 AnimatedObject_SetAnimation(&bf.object, bf.animations.notes[note->id]);
             }
         }
@@ -1391,7 +1411,7 @@ for(size_t i = firstNote; i < noteCount; i++) {
 
             // & ladrilhos claro/escuro: ~43 rects, sem alloc, batch-friendly
             {
-                const float tileW = 30.0f; // tava 14, 27 o trilhado 50/50
+                const float tileW = 150.0f; // tava 14, 27 o trilhado 50/50
                 int ti = 0;
                 for(float x = 0; x < availableWidth; x += tileW, ti++) {
                     float tx1 = x + tileW;
@@ -1459,7 +1479,7 @@ for(size_t i = firstNote; i < noteCount; i++) {
             Rectangle frameRect = {0, 0, 150, 150}; 
             float iconHalf = 75 * bop;
             float iconCY = healthbar.y + healthbar.height / 2;
-            // cabecinha: sobe no beat e assenta, com sway oposto. Reusa bopT, +4 mults.
+            // sway oposto. Reusa bopT, +4 mults.
             float kk = 1 - bopT;
             kk *= kk;
             float bobY = -7 * kk;
@@ -1470,8 +1490,8 @@ for(size_t i = firstNote; i < noteCount; i++) {
             DrawTexturePro(dad.icon, frameRect, (Rectangle) {
                 .x = offsetX + middle + C - 75 - iconHalf - sway,
                 .y = iconCY - iconHalf + bobY,
-                .width = 145 * bop,
-                .height = 145 * bop //tava 150 aqui vou mecher memo, os icone mo grande se ta doido
+                .width = 130 * bop,
+                .height = 130 * bop //tava 150 aqui vou mecher memo, os icone mo grande se ta doido, 145
             }, VECTOR_ZERO, 0, WHITE); 
  
             DrawTexturePro(bf.icon, frameRect, (Rectangle) {

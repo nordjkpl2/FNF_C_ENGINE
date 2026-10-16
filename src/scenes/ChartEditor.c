@@ -6,9 +6,11 @@
 #include"scenes/Stage.h"
 #include"scenes/Note.h"
 #include"cJSON.h"
+#include"yyjson.h"
 
 // Chart Editor v1: palavras simples, sem jargao.
 // PICKER (escolher musica / abrir json) -> EDIT (grade) -> F5 testa no jogo.
+// ^ 1. Chart
 
 static Color LaneColor(int lane);
 static Vector2 MouseWorld(void);
@@ -53,6 +55,10 @@ static char chartLoaded = 0;
 #define UNDO_MAX 50
 static EdChart undoStack[UNDO_MAX];
 static int undoCount = 0;
+
+/*============
+ * // ^ 1. Chart
+ *=====================*/
 
 static void EdChart_Free(EdChart* c) {
     if(c->secs != NULL) {
@@ -267,7 +273,7 @@ static char EdChart_LoadJSON(EdChart* c, const char* jsonPath, const char* dir, 
     }
     buf[size] = 0;
     fclose(f);
-
+/*
     cJSON* root = cJSON_Parse(buf);
     free(buf);
     if(root == NULL)
@@ -281,11 +287,32 @@ static char EdChart_LoadJSON(EdChart* c, const char* jsonPath, const char* dir, 
         cJSON_Delete(root);
         return 0;
     }
+*/ // migração pra yyjson, código em c json ta emcima
+    yyjson_doc* doc = yyjson_read(buf, strlen(buf), 0);
+    free(buf);
+    if(doc == NULL)
+        return 0;
+        
+    yyjson_val* root = yyjson_doc_get_root(doc);
+    if(root == NULL) {
+        yyjson_doc_free(doc);
+        return 0;
+    }
+
+    yyjson_val* js = yyjson_obj_get(root, "song");
+    if(js == NULL)
+        js = root;
+
+    yyjson_val* jnotes = yyjson_obj_get(js, "notes");
+    if(!yyjson_is_arr(jnotes)) {
+        yyjson_doc_free(doc);
+        return 0;
+    }
 
     EdChart tmp;
     EdChart_Default(&tmp, fallbackName);
     strncpy(tmp.dir, dir, sizeof(tmp.dir) - 1);
-
+/*
     cJSON* j = cJSON_GetObjectItem(js, "song");
     if(cJSON_IsString(j)) strncpy(tmp.name, j->valuestring, sizeof(tmp.name) - 1);
     j = cJSON_GetObjectItem(js, "bpm");
@@ -352,6 +379,108 @@ static char EdChart_LoadJSON(EdChart* c, const char* jsonPath, const char* dir, 
     }
 
     cJSON_Delete(root);
+    EdChart_Free(c);
+    *c = tmp;
+    return 1;
+}
+*/
+    yyjson_val* j = yyjson_obj_get(js, "song");
+    if(yyjson_is_str(j)) strncpy(tmp.name, yyjson_get_str(j), sizeof(tmp.name) - 1);
+    
+    j = yyjson_obj_get(js, "bpm");
+    if(yyjson_is_num(j) && yyjson_get_real(j) >= 10) tmp.bpm = (float)yyjson_get_real(j);
+    
+    j = yyjson_obj_get(js, "speed");
+    if(yyjson_is_num(j) && yyjson_get_real(j) > 0) tmp.speed = (float)yyjson_get_real(j);
+    
+    j = yyjson_obj_get(js, "player1");
+    if(yyjson_is_str(j)) strncpy(tmp.p1, yyjson_get_str(j), sizeof(tmp.p1) - 1);
+    
+    j = yyjson_obj_get(js, "player2");
+    if(yyjson_is_str(j)) strncpy(tmp.p2, yyjson_get_str(j), sizeof(tmp.p2) - 1);
+    
+    j = yyjson_obj_get(js, "stage");
+    if(yyjson_is_str(j)) strncpy(tmp.stage, yyjson_get_str(j), sizeof(tmp.stage) - 1);
+    
+    j = yyjson_obj_get(js, "gfVersion");
+    if(yyjson_is_str(j)) strncpy(tmp.gf, yyjson_get_str(j), sizeof(tmp.gf) - 1);
+    
+    // noteSkin: custom note skin name
+    j = yyjson_obj_get(js, "noteSkin");
+    if(yyjson_is_str(j)) strncpy(tmp.noteSkin, yyjson_get_str(j), sizeof(tmp.noteSkin) - 1);
+    else
+        tmp.noteSkin[0] = 0;
+
+    int nsec = (int)yyjson_arr_size(jnotes);
+    if(nsec > 0) {
+        EdChart_Free(&tmp);
+        tmp.secs = calloc((size_t)nsec, sizeof(EdSec));
+        tmp.nsec = nsec;
+        float runBpm = tmp.bpm;
+        
+        for(int i = 0; i < nsec; i++) {
+            yyjson_val* jsec = yyjson_arr_get(jnotes, i);
+            EdSec* s = tmp.secs + i;
+            s->lenSteps = 16;
+            s->bpm = runBpm;
+            
+            if(!yyjson_is_obj(jsec))
+                continue;
+                
+            yyjson_val* jl = yyjson_obj_get(jsec, "lengthInSteps");
+            if(jl == NULL) jl = yyjson_obj_get(jsec, "lengthinsteps");
+            if(yyjson_is_num(jl) && yyjson_get_real(jl) >= 1) s->lenSteps = (int)yyjson_get_int(jl);
+            
+            yyjson_val* jmust = yyjson_obj_get(jsec, "mustHitSection");
+            if(yyjson_is_bool(jmust) && yyjson_get_bool(jmust)) 
+                s->mustHit = 1;
+            else 
+                s->mustHit = 0;
+
+            yyjson_val* jb = yyjson_obj_get(jsec, "bpm");
+            yyjson_val* jchange = yyjson_obj_get(jsec, "changeBPM");
+
+            s->changeBPM = 0;
+
+            if (yyjson_is_bool(jchange) &&
+                yyjson_get_bool(jchange) &&
+                yyjson_is_num(jb) &&
+                    yyjson_get_real(jb) >= 10.0) {
+
+            runBpm = (float)yyjson_get_real(jb);
+            s->changeBPM = 1;
+            }
+
+s->bpm = runBpm;
+            
+            yyjson_val* jarr = yyjson_obj_get(jsec, "sectionNotes");
+            if(!yyjson_is_arr(jarr))
+                continue;
+                
+            int rn = (int)yyjson_arr_size(jarr);
+            for(int k = 0; k < rn; k++) {
+                yyjson_val* jn = yyjson_arr_get(jarr, k);
+                if(!yyjson_is_arr(jn) || yyjson_arr_size(jn) < 2)
+                    continue;
+                    
+                yyjson_val* jt = yyjson_arr_get(jn, 0);
+                yyjson_val* ji = yyjson_arr_get(jn, 1);
+                yyjson_val* jln = yyjson_arr_size(jn) > 2 ? yyjson_arr_get(jn, 2) : NULL;
+                
+                if(!yyjson_is_num(jt) || !yyjson_is_num(ji) || yyjson_get_real(jt) < 0)
+                    continue;
+                    
+                int lane = ((int)yyjson_get_int(ji)) % 8;
+                if(lane < 0) lane += 8;
+                float len = (yyjson_is_num(jln) && yyjson_get_real(jln) > 0) ? (float)yyjson_get_real(jln) : 0;
+                
+                EdSec_AddBulk(s, (float)yyjson_get_real(jt), lane, len);
+            }
+            EdSec_FinishBulk(s);
+        }
+    }
+
+    yyjson_doc_free(doc);
     EdChart_Free(c);
     *c = tmp;
     return 1;

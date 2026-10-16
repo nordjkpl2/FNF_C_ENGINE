@@ -1,7 +1,10 @@
+/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 #include"std.h"
 #include"scenes/Song.h"
-#include"cJSON.h"
+#include"yyjson.h"
 #include"Log.h"
+// aqui tem a rendização da música btw
+// ! UPDT day16/10/2026
 
 #define IERR Log_Fatal("invalid data");
 #define CHECK_LEN(readOperation, expectedSize) if(readOperation != expectedSize) IERR
@@ -111,7 +114,7 @@ void Song_Free(Song* song) {
     song->sections = NULL;
     song->sectionCount = 0;
 }
-
+/*
 // returns 1 on success, 0 if file missing or invalid (caller tries legacy)
 char Song_ParseJSON(Song* song, const char* jsonPath) {
     memset(song, 0, sizeof(Song));
@@ -306,6 +309,217 @@ char Song_ParseJSON(Song* song, const char* jsonPath) {
     cJSON_Delete(root);
     return 1;
 }
+*/
+// returns 1 on success, 0 if file missing or invalid (caller tries legacy)
+char Song_ParseJSON(Song* song, const char* jsonPath) {
+    memset(song, 0, sizeof(Song));
+
+    FILE* file = fopen(jsonPath, "rb");
+    if(file == NULL)
+        return 0;
+
+    fseek(file, 0, SEEK_END);
+    long size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    if(size <= 0 || size > SONG_JSON_MAX_BYTES) {
+        fclose(file);
+        return 0;
+    }
+
+    char* buf = malloc((size_t)size + 1);
+    if(buf == NULL) {
+        fclose(file);
+        return 0;
+    }
+    if(fread(buf, 1, (size_t)size, file) != (size_t)size) {
+        free(buf);
+        fclose(file);
+        return 0;
+    }
+    buf[size] = 0;
+    fclose(file);
+
+    yyjson_doc* doc = yyjson_read(buf, (size_t)size, 0);
+    free(buf);
+    if(doc == NULL)
+        return 0;
+
+    yyjson_val* root = yyjson_doc_get_root(doc);
+    if(root == NULL) {
+        yyjson_doc_free(doc);
+        return 0;
+    }
+
+    // FNF charts wrap in { "song": {...} }, accept bare object too
+    yyjson_val* jsong = yyjson_obj_get(root, "song");
+    if(jsong == NULL)
+        jsong = root;
+
+    yyjson_val* jnotes = yyjson_obj_get(jsong, "notes");
+    yyjson_val* jspeed = yyjson_obj_get(jsong, "speed");
+    yyjson_val* jbpmtop = yyjson_obj_get(jsong, "bpm");
+    if(!yyjson_is_arr(jnotes)) {
+        yyjson_doc_free(doc);
+        return 0;
+    }
+
+    float topBpm = yyjson_is_num(jbpmtop) ? (float)(yyjson_is_int(jbpmtop) ? yyjson_get_int(jbpmtop) : yyjson_get_real(jbpmtop)) : 100.0f;
+    if(topBpm < 10.0f) topBpm = 100.0f;
+    float speed = yyjson_is_num(jspeed) ? (float)(yyjson_is_int(jspeed) ? yyjson_get_int(jspeed) : yyjson_get_real(jspeed)) : 1.0f;
+    if(speed < 0.1f) speed = 1.0f;
+
+    yyjson_val* jplayer1 = yyjson_obj_get(jsong, "player1");
+    yyjson_val* jplayer2 = yyjson_obj_get(jsong, "player2");
+    yyjson_val* jstage = yyjson_obj_get(jsong, "stage");
+    yyjson_val* jgf = yyjson_obj_get(jsong, "gfVersion");
+    yyjson_val* jnoteSkin = yyjson_obj_get(jsong, "noteSkin");
+
+    Song_CopyString(song->player1, yyjson_is_str(jplayer1) ? yyjson_get_str(jplayer1) : NULL, "bf");
+    Song_CopyString(song->player2, yyjson_is_str(jplayer2) ? yyjson_get_str(jplayer2) : NULL, "dad");
+    Song_CopyString(song->stage, yyjson_is_str(jstage) ? yyjson_get_str(jstage) : NULL, "stage");
+    if(yyjson_is_str(jgf))
+        Song_CopyString(song->gfVersion, yyjson_get_str(jgf), "gf");
+    else
+        Song_CopyString(song->gfVersion, NULL, "gf");
+    if(yyjson_is_str(jnoteSkin))
+        Song_CopyString(song->noteSkin, yyjson_get_str(jnoteSkin), "");
+    else
+        song->noteSkin[0] = 0;
+
+    song->bpm = topBpm;
+    song->speed = speed;
+
+    int sectionCount = (int)yyjson_arr_size(jnotes);
+    if(sectionCount < 1) {
+        yyjson_doc_free(doc);
+        return 0;
+    }
+
+    song->sections = calloc((size_t)sectionCount, sizeof(Section));
+    if(song->sections == NULL) {
+        yyjson_doc_free(doc);
+        return 0;
+    }
+    song->sectionCount = sectionCount;
+
+    float runningBpm = topBpm;
+    for(int i = 0; i < sectionCount; i++) {
+        yyjson_val* jsec = yyjson_arr_get(jnotes, (size_t)i);
+        Section* section = song->sections + i;
+        section->notes = NULL;
+        section->noteCount = 0;
+
+        if(!yyjson_is_obj(jsec))
+            continue;
+
+        yyjson_val* jlen = yyjson_obj_get(jsec, "lengthInSteps");
+        if(jlen == NULL) jlen = yyjson_obj_get(jsec, "lengthinsteps");
+        yyjson_val* jmust = yyjson_obj_get(jsec, "mustHitSection");
+        yyjson_val* jsecbpm = yyjson_obj_get(jsec, "bpm");
+        yyjson_val* jchange = yyjson_obj_get(jsec, "changeBPM");
+        yyjson_val* jsecnotes = yyjson_obj_get(jsec, "sectionNotes");
+
+        section->len = yyjson_is_num(jlen) ? (int)(yyjson_is_int(jlen) ? yyjson_get_int(jlen) : yyjson_get_real(jlen)) : 16;
+        if(section->len < 1) section->len = 16;
+        section->mustHit = (yyjson_is_bool(jmust) && yyjson_get_bool(jmust)) ? 1 : 0;
+
+        if(yyjson_is_bool(jchange) && yyjson_get_bool(jchange) && yyjson_is_num(jsecbpm)) {
+            float sbpm = (float)(yyjson_is_int(jsecbpm) ? yyjson_get_int(jsecbpm) : yyjson_get_real(jsecbpm));
+            if(sbpm >= 10.0f) runningBpm = sbpm;
+        }
+        section->bpm = runningBpm;
+
+        if(!yyjson_is_arr(jsecnotes))
+            continue;
+
+        int rawCount = (int)yyjson_arr_size(jsecnotes);
+        if(rawCount < 1)
+            continue;
+
+        RawNote* raw = malloc(sizeof(RawNote) * (size_t)rawCount);
+        if(raw == NULL)
+            continue;
+        int valid = 0;
+        for(int j = 0; j < rawCount; j++) {
+            yyjson_val* jn = yyjson_arr_get(jsecnotes, (size_t)j);
+            if(!yyjson_is_arr(jn) || yyjson_arr_size(jn) < 2)
+                continue;
+            yyjson_val* jt = yyjson_arr_get(jn, 0);
+            yyjson_val* ji = yyjson_arr_get(jn, 1);
+            yyjson_val* jl = yyjson_arr_size(jn) > 2 ? yyjson_arr_get(jn, 2) : NULL;
+            if(!yyjson_is_num(jt) || !yyjson_is_num(ji))
+                continue;
+
+            // Leitura segura que previne zerar o tempo (suporta int e real)
+            float t = (float)(yyjson_is_int(jt) ? yyjson_get_int(jt) : yyjson_get_real(jt));
+            int rawLane = yyjson_is_int(ji) ? yyjson_get_int(ji) : (int)yyjson_get_real(ji);
+            
+            int id = rawLane % 8;
+            if(id < 0) id += 8;
+
+            float l = 0.0f;
+            if(jl && yyjson_is_num(jl)) {
+                double lval = yyjson_is_int(jl) ? yyjson_get_int(jl) : yyjson_get_real(jl);
+                if(lval >= 0.0) l = (float)lval;
+            }
+
+            if(t < 0.0f)
+                continue;
+
+            raw[valid].time = t;
+            raw[valid].rawId = id;
+            raw[valid].len = l;
+            valid++;
+        }
+        if(valid == 0) {
+            free(raw);
+            continue;
+        }
+
+        qsort(raw, (size_t)valid, sizeof(RawNote), RawNote_Compare);
+
+        // dedup: mesma lane dentro de 2ms descarta (ultimo tempo por lane)
+        float last[8];
+        for(int k = 0; k < 8; k++) last[k] = -999999.0f;
+        DataNote* out = malloc(sizeof(DataNote) * (size_t)valid);
+        if(out == NULL) {
+            free(raw);
+            continue;
+        }
+        int kept = 0;
+        char mustHit = section->mustHit;
+        for(int j = 0; j < valid; j++) {
+            int lane = raw[j].rawId;
+            if(raw[j].time - last[lane] < 2.0f)
+                continue;
+            last[lane] = raw[j].time;
+
+            int id;
+            if(mustHit) {
+                if(lane < 4) id = -(lane + 1);
+                else id = lane - 3;
+            } else {
+                if(lane < 4) id = lane + 1;
+                else id = -(lane - 3);
+            }
+            out[kept].time = raw[j].time;
+            out[kept].id = id;
+            out[kept].len = raw[j].len;
+            kept++;
+        }
+        free(raw);
+
+        if(kept == 0) {
+            free(out);
+            continue;
+        }
+        section->notes = out;
+        section->noteCount = kept;
+    }
+
+    yyjson_doc_free(doc);
+    return 1;
+}
 
 void Song_LoadSong(Song* song, const char* songName) {
     char dir[256];
@@ -330,7 +544,7 @@ static char EndsWithI(const char* str, const char* suf) {
     return 1;
 }
 
-// 1 = tem cara de chart (array de sections com notes)
+/*// 1 = tem cara de chart (array de sections com notes)
 static char LooksLikeChart(const char* path) {
     FILE* f = fopen(path, "rb");
     if(f == NULL)
@@ -365,6 +579,49 @@ static char LooksLikeChart(const char* path) {
     cJSON* jnotes = cJSON_GetObjectItem(jsong, "notes");
     char ok = cJSON_IsArray(jnotes) && cJSON_GetArraySize(jnotes) > 0;
     cJSON_Delete(root);
+    return ok;
+}
+    */
+static char LooksLikeChart(const char* path) {
+    FILE* f = fopen(path, "rb");
+    if(f == NULL)
+        return 0;
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if(size <= 0 || size > SONG_JSON_MAX_BYTES) {
+        fclose(f);
+        return 0;
+    }
+    char* buf = malloc((size_t)size + 1);
+    if(buf == NULL) {
+        fclose(f);
+        return 0;
+    }
+    if(fread(buf, 1, (size_t)size, f) != (size_t)size) {
+        free(buf);
+        fclose(f);
+        return 0;
+    }
+    buf[size] = 0;
+    fclose(f);
+
+    yyjson_doc* doc = yyjson_read(buf, (size_t)size, 0);
+    free(buf);
+    if(doc == NULL)
+        return 0;
+
+    yyjson_val* root = yyjson_doc_get_root(doc);
+    if(root == NULL) {
+        yyjson_doc_free(doc);
+        return 0;
+    }
+    yyjson_val* jsong = yyjson_obj_get(root, "song");
+    if(jsong == NULL)
+        jsong = root;
+    yyjson_val* jnotes = yyjson_obj_get(jsong, "notes");
+    char ok = yyjson_is_arr(jnotes) && yyjson_arr_size(jnotes) > 0;
+    yyjson_doc_free(doc);
     return ok;
 }
 
@@ -579,4 +836,12 @@ char Song_HasChart(const char* dirPath) {
             return 1;
     }
     return 0;
+}
+
+// Leitor numérico seguro para yyjson (suporta UINT, SINT e REAL sem perda de precisão)
+static double YYJSON_GetNum(yyjson_val* val, double default_val) {
+    if (!yyjson_is_num(val)) return default_val;
+    if (yyjson_is_int(val))  return (double)yyjson_get_int(val);
+    if (yyjson_is_uint(val)) return (double)yyjson_get_uint(val);
+    return yyjson_get_real(val);
 }

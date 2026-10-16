@@ -7,7 +7,9 @@ static Camera2D* targetCamera = NULL;
 // Renderização de Camera
 // DO NOT CHANGE THE ZOOM WHILE RENDERING THE CAMERA
 // ==========================================
-// CÂMERA, TEXTURAS E DEFAULTS (VIDA)
+// ? 1. CÂMERA, TEXTURAS E DEFAULTS (VIDA)
+// ! 2: RENDERIZAÇÃO E GUI (desenho de gui)
+// ? 3: ANIMAÇÃO E ESTADOS (logica)
 // ========================================== yeeea
 void Render_SetCamera(Camera2D* camera) {
     targetCamera = camera; 
@@ -63,7 +65,7 @@ void Render_DefaultAnimated(RayAnimatedObject* obj) {
     obj->currentAnim.isValid = 0;
 }
 // ==========================================
-// 2: RENDERIZAÇÃO E GUI (desenho de gui)
+// ! 2: RENDERIZAÇÃO E GUI (desenho de gui)
 // Desenha Os Objetos
 void Render_DrawGraphicObject(RayGraphicObject* obj) {
     Vector2 scrollOffset = zero;
@@ -139,7 +141,7 @@ Vector2 AnimatedObject_Sizes(RayAnimatedObject* obj) {
     };
 }
 // ==========================================
-// 3: ANIMAÇÃO E ESTADOS (logica)
+// ? 3: ANIMAÇÃO E ESTADOS (logica)
 // Update do Frame de Objetos com Texturas
 void AnimatedObject_UpdateFrame(RayAnimatedObject* obj) {
     if(!obj->currentAnim.isValid)

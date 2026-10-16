@@ -236,6 +236,7 @@ static void StoryState_Draw([[maybe_unused]] RayScene* scene) {
             DrawTexturePro(weekIcon, (Rectangle) {0, 0, 150, 150},
                 (Rectangle) {1055 - 100, 575 - 100, 200, 200}, VECTOR_ZERO, 0, WHITE);
         }
+        // Cd
         discAngle += RayGame_DeltaTime() * 0.6f;
         Vector2 c = {1055, 575};
         DrawCircleV(c, 135, (Color){16, 16, 24, 255});

@@ -4,7 +4,7 @@
 #include "headers/scenes/AllScenes.h"
  
 int main() { 
-	RayGame_Start("Friday Night Funkin' | C port");
+	RayGame_Start("Friday Night Funkin' | C port and Engine");
 	AllScenes_StartGame();
 	TitleState_SetScene(); 
 
