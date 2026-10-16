@@ -1,17 +1,47 @@
-~ $ cd "D:/dev/fnf c engine"
-> Compilação
-    gcc main.c $(find src -name "*.c") $(find lib -name "*.c") -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -flto -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O2 -s -DNDEBUG -fomit-frame-pointer
-    // ! Sem Fito
-    gcc main.c $(find src -name "*.c") $(find lib -name "*.c") -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O2 -s -DNDEBUG -fomit-frame-pointer
-    
-    // Sem w64devkit
-    gcc main.c src/*.c lib/*.c -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O2 -s -DNDEBUG -fomit-frame-pointer
-> Menu
-    StoryMode ->            src/scenes/StoryState.c
-    Freeplay ->         src/scenes/Freeplay.c
-    Options ->      src/scenes/OptionsMenu.c 
-    Modding ->  src/scenes/ModdingState.c
-    Botplay -> PlayState
+build (fnf c engine (c) 2026 nordjkpl and as name Mawh/na Corporation)
+
+    build and infos file, you can view some info about project here, like a summary
+
+        >   Mapa
+        1.Build
+        2.Map
+        Backup
+        >>Limites Fisicos de Software
+
+1. Build
+    Código de Compilação Comum Atual
+    gcc main.c $(find src -name "*.c") $(find lib -name "*.c") -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -flto -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O2 -s -DNDEBUG -fomit-frame-pointer -fno-math-errno
+    Sem Fito
+    gcc main.c $(find src -name "*.c") $(find lib -name "*.c") -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O2 -s -DNDEBUG -fomit-frame-pointer -fno-math-errno
+    Sem w64devkit
+    gcc main.c src/*.c lib/*.c -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O2 -s -DNDEBUG -fomit-frame-pointer -fno-math-errno
+2.  Map
+    &   Renderização    &
+    ### Scene.c -> Cria e Destroi Cenas de Forma Gênerica, Parte do Código pras Cenas
+    ## Render.c -> Renderização (atualização de Frames e Parametros de Objetos) 
+    &   Core Dados e Sistema    &
+    ###### Log.c -> Código pra Jogar as Mensagens de log do terminal em Baixo Nivel (entre plataformas se não eu usava win32api)
+    # GameData.c -> Menu de Opções, save.data tudo ai
+    ##### Game.c -> Lógica principal, controle de tempo (delta t), zoom e janela
+    &   Funções     &
+    # Chart Editor.c -> Chart Editor bruhhh
+    &   Cenas   &
+    ###### Freeplay.c -> Freeplay
+    ## LoadingState.c -> Loading para charts muito grandes (ficar numa tela preta é badd, talvez eu faço uma barra de carregamento, mas não precisa)
+    ##### MenuState.c -> Le o Titulo
+    ## ModdingState.c -> Submenu e Código pra aba de Modding
+    ### OptionsMenu.c -> Diferente do Game Data C é o menu pra mudar as opções (cena) não o código do menu
+    ##### AllScenes.c -> Animação bf, dad e Animação de Todos os Personagens
+    #### TitleState.c -> A Animação Inicial de Titulo do Fnf
+    #### StoryState.c -> Modo Historia do Menu Código
+    &   Estado  & (código que tem dependencia de outra coisa, mas continua sendo principal)
+    ## PlayState.c -> Gui e Tudo da Gameplay ta Aqui
+
+    2.1 > Extra
+    Barra de Vida <playstate.c
+    Notas <playstate.c
+    Icons <playstate.c
+    Score <playstate.c
 > Backup
     git status
     git diff
@@ -19,3 +49,7 @@
     git commit -m "your text here"
     git push origin main
     // if you use pull will download from github
+
+>>Limites Fisicos de Software
+    O Limite de Quando da Pra Armazenar Com o Char Atual de Score é 9 Septilhões de Score (25 ou 32 caracteres dependendo dos sinais que sair)
+    Misses nem vou contar porque o botplay nao funciona errando as notas e ganhando vida

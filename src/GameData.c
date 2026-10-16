@@ -8,7 +8,8 @@
 
 #define SREAD(type, output) READ(type, 1, output)
 #define SWRITE(type, source) WRITE(type, 1, source)
-
+// & =============================
+// & OPTIONS
 char    game_options_showScore;
 char    game_options_bopIcons;
 char    game_options_vsync;
@@ -55,7 +56,7 @@ static void GameData_Checks(void) {
 
 void GameData_Start(void) {
     // read or set to default (what I am doing currently)
-
+    
     saveFile = fopen("assets/save.data", "r+b");
     if(saveFile == NULL) { 
         // save not found, default values

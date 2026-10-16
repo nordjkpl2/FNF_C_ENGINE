@@ -18,7 +18,7 @@ static float smooth(float a, float b, float c) {
 /* // ~ Line 412 Personagens e Dificuldade */
 /* // ^ Line 650 Hit Notes (bad etc)*/
 /* //(#FF5733) Line 689 AutoPlay NoteHits e If Pressed */
-/* //(#00ffff)i Aqui */
+/* //(#00ffff)i Line 1415 Tempo */
 /* //(#3498DB) Line 1369 Renderização da Barra de Vida */
 // Y do receptor por modo (0=Normal, 1=Downscroll, 2=Middlescroll)
 static float Scroll_StrumY(char mustHit) {
@@ -1388,10 +1388,10 @@ for(size_t i = firstNote; i < noteCount; i++) {
             float availableWidth = healthbar.width - healthbarPadding * 2; 
             float availableHeight = healthbar.height - healthbarPadding * 2;
             float middle = availableWidth * (1 - health);
-            
-            // ladrilhos claro/escuro: ~43 rects, sem alloc, batch-friendly
+
+            // & ladrilhos claro/escuro: ~43 rects, sem alloc, batch-friendly
             {
-                const float tileW = 14.0f;
+                const float tileW = 30.0f; // tava 14, 27 o trilhado 50/50
                 int ti = 0;
                 for(float x = 0; x < availableWidth; x += tileW, ti++) {
                     float tx1 = x + tileW;
@@ -1470,15 +1470,15 @@ for(size_t i = firstNote; i < noteCount; i++) {
             DrawTexturePro(dad.icon, frameRect, (Rectangle) {
                 .x = offsetX + middle + C - 75 - iconHalf - sway,
                 .y = iconCY - iconHalf + bobY,
-                .width = 150 * bop,
-                .height = 150 * bop
+                .width = 145 * bop,
+                .height = 145 * bop //tava 150 aqui vou mecher memo, os icone mo grande se ta doido
             }, VECTOR_ZERO, 0, WHITE); 
  
             DrawTexturePro(bf.icon, frameRect, (Rectangle) {
                 .x = offsetX + middle - C + 75 - iconHalf + sway,
                 .y = iconCY - iconHalf - bobY,
-                .width = 150 * bop,
-                .height = 150 * bop
+                .width = 145 * bop,
+                .height = 145 * bop
             }, VECTOR_ZERO, 0, WHITE);
         } 
 
