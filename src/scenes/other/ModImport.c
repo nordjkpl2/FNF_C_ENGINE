@@ -1,6 +1,6 @@
 #include "std.h"
 #include "scenes/ModImport.h"
-#include "cJSON.h"
+#include "yyjson.h"
 #include <io.h> // rmdir (apagar pastas vazias no delete)
 
 // ---------- util ----------
@@ -116,16 +116,20 @@ static void MI_HealthIcon(const char* jsonPath, const char* fallback, char* out,
     }
     buf[size] = 0;
     fclose(f);
-    cJSON* root = cJSON_Parse(buf);
+    yyjson_doc* doc = yyjson_read(buf, (size_t)size, 0);
     free(buf);
-    if(root == NULL)
+    if(doc == NULL)
         return;
-    cJSON* jh = cJSON_GetObjectItem(root, "healthicon");
-    if(cJSON_IsString(jh) && jh->valuestring[0] != 0 && MI_SafeName(jh->valuestring)) {
-        strncpy(out, jh->valuestring, n - 1);
-        out[n - 1] = 0;
+    yyjson_val* root = yyjson_doc_get_root(doc);
+    yyjson_val* jh = yyjson_obj_get(root, "healthicon");
+    if(yyjson_is_str(jh)) {
+        const char* s = yyjson_get_str(jh);
+        if(s != NULL && s[0] != 0 && MI_SafeName(s)) {
+            strncpy(out, s, n - 1);
+            out[n - 1] = 0;
+        }
     }
-    cJSON_Delete(root);
+    yyjson_doc_free(doc);
 }
 
 // p1/p2/stage do chart .json (p/ mapear icones de quem nao tem character .json)
@@ -152,32 +156,36 @@ static void MI_ChartActors(const char* jsonPath, char actors[][32], int* count) 
     }
     buf[size] = 0;
     fclose(f);
-    cJSON* root = cJSON_Parse(buf);
+    yyjson_doc* doc = yyjson_read(buf, (size_t)size, 0);
     free(buf);
-    if(root == NULL)
+    if(doc == NULL)
         return;
-    cJSON* js = cJSON_GetObjectItem(root, "song");
-    if(js == NULL)
+    yyjson_val* root = yyjson_doc_get_root(doc);
+    yyjson_val* js = yyjson_obj_get(root, "song");
+    if(js == NULL || !yyjson_is_obj(js))
         js = root;
     const char* keys[3] = {"player1", "player2", "stage"};
     for(int k = 0; k < 3; k++) {
-        cJSON* j = cJSON_GetObjectItem(js, keys[k]);
-        if(!cJSON_IsString(j) || j->valuestring[0] == 0 || !MI_SafeName(j->valuestring))
+        yyjson_val* j = yyjson_obj_get(js, keys[k]);
+        if(!yyjson_is_str(j))
+            continue;
+        const char* val = yyjson_get_str(j);
+        if(val == NULL || val[0] == 0 || !MI_SafeName(val))
             continue;
         char dup = 0;
         for(int i = 0; i < *count; i++) {
-            if(MI_CiEq(actors[i], j->valuestring)) {
+            if(MI_CiEq(actors[i], val)) {
                 dup = 1;
                 break;
             }
         }
         if(!dup && *count < 64) {
-            strncpy(actors[*count], j->valuestring, 31);
+            strncpy(actors[*count], val, 31);
             actors[*count][31] = 0;
             (*count)++;
         }
     }
-    cJSON_Delete(root);
+    yyjson_doc_free(doc);
 }
 
 // copia icone icon-<key>.png (src/icons) -> <name>.png (icons do mod). 1 = copiou.
@@ -359,7 +367,6 @@ char ModImport_DeleteAll(const char* dstRoot, char* msg, size_t msgSize,
 typedef struct { char name[128]; int x, y, w, h, fx, fy; } MI_XmlFrame;
 
 static char MI_XmlStr(const char* tag, const char* tagEnd, const char* attr, char* out, size_t n) {
-    // attr com espaco inicial e =" (ex: " name=") p/ nao casar frameX ao buscar x
     size_t al = strlen(attr);
     const char* p = tag;
     while(p + al < tagEnd) {
@@ -445,8 +452,6 @@ static char MI_RestIsDigits(const char* s) {
     return 1;
 }
 
-// resto apos o prefixo: vazio, so digitos ("Dan_Left0001") ou extensao
-// (frame unico tipo "dave.png" — a Psych tbm casa por prefixo puro).
 static char MI_RestOk(const char* s) {
     if(s[0] == 0 || s[0] == '.')
         return 1;
@@ -476,43 +481,51 @@ static int MI_CharAnims(const char* jsonPath, MI_CharAnim* out, int cap) {
     }
     buf[size] = 0;
     fclose(f);
-    cJSON* root = cJSON_Parse(buf);
+    yyjson_doc* doc = yyjson_read(buf, (size_t)size, 0);
     free(buf);
-    if(root == NULL)
+    if(doc == NULL)
         return 0;
+    yyjson_val* root = yyjson_doc_get_root(doc);
     int n = 0;
-    cJSON* ja = cJSON_GetObjectItem(root, "animations");
-    if(cJSON_IsArray(ja)) {
-        int total = cJSON_GetArraySize(ja);
-        for(int i = 0; i < total && n < cap; i++) {
-            cJSON* a = cJSON_GetArrayItem(ja, i);
-            cJSON* jrole = cJSON_GetObjectItem(a, "anim");
-            cJSON* jname = cJSON_GetObjectItem(a, "name");
-            if(!cJSON_IsString(jrole) || !cJSON_IsString(jname))
+    yyjson_val* ja = yyjson_obj_get(root, "animations");
+    if(yyjson_is_arr(ja)) {
+        size_t idx, max;
+        yyjson_val* a;
+        yyjson_arr_foreach(ja, idx, max, a) {
+            if(n >= cap) break;
+            yyjson_val* jrole = yyjson_obj_get(a, "anim");
+            yyjson_val* jname = yyjson_obj_get(a, "name");
+            if(!yyjson_is_str(jrole) || !yyjson_is_str(jname))
                 continue;
-            if(jrole->valuestring[0] == 0 || jname->valuestring[0] == 0)
+            const char* r_str = yyjson_get_str(jrole);
+            const char* n_str = yyjson_get_str(jname);
+            if(r_str == NULL || r_str[0] == 0 || n_str == NULL || n_str[0] == 0)
                 continue;
-            if(strlen(jname->valuestring) > 31)
+            if(strlen(n_str) > 31)
                 continue; // loader rejeita >31 (fatal); pula
             MI_CharAnim* o = out + n;
-            strncpy(o->role, jrole->valuestring, sizeof(o->role) - 1);
+            strncpy(o->role, r_str, sizeof(o->role) - 1);
             o->role[sizeof(o->role) - 1] = 0;
-            strncpy(o->sprite, jname->valuestring, sizeof(o->sprite) - 1);
+            strncpy(o->sprite, n_str, sizeof(o->sprite) - 1);
             o->sprite[sizeof(o->sprite) - 1] = 0;
             o->idxCount = 0;
-            cJSON* jidx = cJSON_GetObjectItem(a, "indices");
-            if(cJSON_IsArray(jidx)) {
-                int ni = cJSON_GetArraySize(jidx);
-                for(int k = 0; k < ni && o->idxCount < MI_MAX_ANIMFRAMES; k++) {
-                    cJSON* ji = cJSON_GetArrayItem(jidx, k);
-                    if(cJSON_IsNumber(ji) && ji->valueint >= 0)
-                        o->idx[o->idxCount++] = ji->valueint;
+            yyjson_val* jidx = yyjson_obj_get(a, "indices");
+            if(yyjson_is_arr(jidx)) {
+                size_t kidx, kmax;
+                yyjson_val* ji;
+                yyjson_arr_foreach(jidx, kidx, kmax, ji) {
+                    if(o->idxCount >= MI_MAX_ANIMFRAMES) break;
+                    if(yyjson_is_int(ji)) {
+                        int val = yyjson_get_int(ji);
+                        if(val >= 0)
+                            o->idx[o->idxCount++] = val;
+                    }
                 }
             }
             n++;
         }
     }
-    cJSON_Delete(root);
+    yyjson_doc_free(doc);
     return n;
 }
 
@@ -542,29 +555,31 @@ static void MI_CharImageBase(const char* jsonPath, const char* fallback, char* o
     }
     buf[size] = 0;
     fclose(f);
-    cJSON* root = cJSON_Parse(buf);
+    yyjson_doc* doc = yyjson_read(buf, (size_t)size, 0);
     free(buf);
-    if(root == NULL)
+    if(doc == NULL)
         return;
-    cJSON* ji = cJSON_GetObjectItem(root, "image");
-    if(cJSON_IsString(ji) && ji->valuestring[0] != 0) {
-        const char* b = ji->valuestring;
-        const char* s1 = strrchr(b, '/');
-        const char* s2 = strrchr(b, '\\');
-        const char* s = (s1 > s2) ? s1 : s2;
-        b = (s != NULL) ? s + 1 : b;
-        if(b[0] != 0 && strchr(b, '/') == NULL && strchr(b, '\\') == NULL && strstr(b, "..") == NULL) {
-            strncpy(out, b, n - 1);
-            out[n - 1] = 0;
+    yyjson_val* root = yyjson_doc_get_root(doc);
+    yyjson_val* ji = yyjson_obj_get(root, "image");
+    if(yyjson_is_str(ji)) {
+        const char* b = yyjson_get_str(ji);
+        if(b != NULL && b[0] != 0) {
+            const char* s1 = strrchr(b, '/');
+            const char* s2 = strrchr(b, '\\');
+            const char* s = (s1 > s2) ? s1 : s2;
+            b = (s != NULL) ? s + 1 : b;
+            if(b[0] != 0 && strchr(b, '/') == NULL && strchr(b, '\\') == NULL && strstr(b, "..") == NULL) {
+                strncpy(out, b, n - 1);
+                out[n - 1] = 0;
+            }
         }
     }
-    cJSON_Delete(root);
+    yyjson_doc_free(doc);
 }
 
-typedef struct { int x, y, w, h, fx, fy; } MI_FrameOut; // igual a Frame (Render.h)
+typedef struct { int x, y, w, h, fx, fy; } MI_FrameOut;
 
 // Gera .animset a partir do .json (animations[]) + .xml (Sparrow).
-// Retorna anims escritas (0 = nao escreveu nada).
 static int MI_WriteAnimset(const char* charJson, const char* xmlPath, const char* animsetPath) {
     FILE* xf = fopen(xmlPath, "rb");
     if(xf == NULL)
@@ -606,7 +621,6 @@ static int MI_WriteAnimset(const char* charJson, const char* xmlPath, const char
         return 0;
     }
 
-    // resolve frames por anim (prefixo + resto so-digitos; indices[] filtra)
     static short picked[MI_MAX_CHARANIMS][MI_MAX_ANIMFRAMES];
     static short pickCount[MI_MAX_CHARANIMS];
     int kept = 0;
@@ -723,7 +737,6 @@ char ModImport_Run(const char* srcMod, const char* dstRoot,
         MakeDirectory(d);
     }
 
-    // nomes p/ icones: characters + actors dos charts (dedup, max 64)
     char iconNames[64][32];
     int iconNameCount = 0;
 
@@ -735,7 +748,6 @@ char ModImport_Run(const char* srcMod, const char* dstRoot,
             continue;
         char dstSong[300];
         snprintf(dstSong, sizeof(dstSong), "%s/songs/%s", dst, songBase);
-        // Inst.ogg obrigatorio (scan da engine exige)
         char inst[300];
         snprintf(inst, sizeof(inst), "%s/Inst.ogg", songs.paths[i]);
         FILE* fi = fopen(inst, "rb");
@@ -747,7 +759,6 @@ char ModImport_Run(const char* srcMod, const char* dstRoot,
         snprintf(dstInst, sizeof(dstInst), "%s/Inst.ogg", dstSong);
         if(!MI_Copy(inst, dstInst, &st.bytes))
             continue;
-        // vozes: Voices.ogg unico e/ou par separado (igual assets/mods/high/)
         const char* vox[3] = {"Voices.ogg", "Voices-Player.ogg", "Voices-Opponent.ogg"};
         for(int v = 0; v < 3; v++) {
             char sv[300], dv[300];
@@ -759,7 +770,6 @@ char ModImport_Run(const char* srcMod, const char* dstRoot,
             fclose(fv);
             MI_Copy(sv, dv, &st.bytes);
         }
-        // charts: data/<musica>/*.json (match case-insensitive), menos events.json
         char dataDir[300] = {0};
         FilePathList datas = LoadDirectoryFilesEx(srcData, "DIR", false);
         for(unsigned int d = 0; d < datas.count; d++) {
@@ -792,7 +802,6 @@ char ModImport_Run(const char* srcMod, const char* dstRoot,
             }
             UnloadDirectoryFiles(charts);
         } else {
-            // fallback: charts soltos junto do audio (menos events.json)
             FilePathList charts = LoadDirectoryFilesEx(songs.paths[i], ".json", false);
             for(unsigned int c = 0; c < charts.count; c++) {
                 char stem[128];
@@ -814,7 +823,6 @@ char ModImport_Run(const char* srcMod, const char* dstRoot,
             }
             UnloadDirectoryFiles(charts);
         }
-        // .lua solto em data/ nao entra (sem runtime Lua)
         if(dataDir[0] != 0) {
             FilePathList luas = LoadDirectoryFilesEx(dataDir, ".lua", false);
             st.skippedLua += (int)luas.count;
@@ -830,7 +838,7 @@ char ModImport_Run(const char* srcMod, const char* dstRoot,
         return 0;
     }
 
-    // ---------- weeks (main > raiz > extra > joke, sem duplicar base) ----------
+    // ---------- weeks ----------
     {
         char seen[32][64];
         int seenCount = 0;
@@ -868,7 +876,7 @@ char ModImport_Run(const char* srcMod, const char* dstRoot,
         }
     }
 
-    // ---------- stages (.lua + .json irmao) ----------
+    // ---------- stages ----------
     {
         char sd[300];
         snprintf(sd, sizeof(sd), "%s/stages", srcMod);
@@ -884,7 +892,6 @@ char ModImport_Run(const char* srcMod, const char* dstRoot,
                 snprintf(dl, sizeof(dl), "%s/stages/%s", dst, lb);
                 if(MI_Copy(sl.paths[j], dl, &st.bytes))
                     st.stages++;
-                // json irmao (posicoes): mesmo nome, .json
                 char sj[300], dj[300];
                 snprintf(sj, sizeof(sj), "%s/%s.json", sd, stem);
                 FILE* fj = fopen(sj, "rb");
@@ -895,7 +902,6 @@ char ModImport_Run(const char* srcMod, const char* dstRoot,
                 }
             }
             UnloadDirectoryFiles(sl);
-            // .json sem .lua irmao (stage so-json)
             FilePathList sj2 = LoadDirectoryFilesEx(sd, ".json", false);
             for(unsigned int j = 0; j < sj2.count; j++) {
                 char stem[128];
@@ -907,7 +913,7 @@ char ModImport_Run(const char* srcMod, const char* dstRoot,
                 FILE* fl = fopen(sl2, "rb");
                 if(fl != NULL) {
                     fclose(fl);
-                    continue; // ja veio com o .lua
+                    continue;
                 }
                 const char* jb = MI_Base(sj2.paths[j]);
                 char dj[300];
@@ -919,13 +925,11 @@ char ModImport_Run(const char* srcMod, const char* dstRoot,
         }
     }
 
-    // ---------- imagens (bg + personagens) ----------
+    // ---------- imagens ----------
     {
         char id[300];
         snprintf(id, sizeof(id), "%s/images", srcMod);
         if(DirectoryExists(id)) {
-            // UMA listagem (filtro raylib e case-insensitive: .png/.PNG
-            // na mesma chamada duplicariam tudo). So arquivos .png.
             FilePathList all = LoadDirectoryFilesEx(id, NULL, false);
             for(unsigned int j = 0; j < all.count; j++) {
                 if(DirectoryExists(all.paths[j]))
@@ -963,7 +967,7 @@ char ModImport_Run(const char* srcMod, const char* dstRoot,
         }
     }
 
-    // ---------- characters (.json + png/xml + .animset gerado) + icones no mod ----------
+    // ---------- characters ----------
     {
         char modIcons[300];
         snprintf(modIcons, sizeof(modIcons), "%s/images/icons", dst);
@@ -986,7 +990,6 @@ char ModImport_Run(const char* srcMod, const char* dstRoot,
                 if(!MI_Copy(ch.paths[j], dc, &st.bytes))
                     continue;
                 st.characters++;
-                // nome p/ icone
                 char dup = 0;
                 for(int k = 0; k < iconNameCount; k++) {
                     if(MI_CiEq(iconNames[k], stem)) {
@@ -999,12 +1002,8 @@ char ModImport_Run(const char* srcMod, const char* dstRoot,
                     iconNames[iconNameCount][31] = 0;
                     iconNameCount++;
                 }
-                // lookup da engine: .animset com o NOME do char; o png resolve
-                // pela campo "image" do .json no load (sem duplicar PNG).
                 char ibase[64];
                 MI_CharImageBase(dc, stem, ibase, sizeof(ibase));
-                // .animset a partir do xml da base (Psych: image + .xml irmao).
-                // Sempre reconverte (barato; evita .animset velho de reimport).
                 char sx[300], sa[300];
                 snprintf(sx, sizeof(sx), "%s/%s.xml", srcChars, ibase);
                 snprintf(sa, sizeof(sa), "%s/%s.animset", modChars, stem);
@@ -1015,13 +1014,11 @@ char ModImport_Run(const char* srcMod, const char* dstRoot,
             }
             UnloadDirectoryFiles(ch);
         }
-        // materializa icones: icon-<healthicon>.png -> <mod>/images/icons/<nome>.png
         for(int k = 0; k < iconNameCount; k++) {
             char hpath[300];
             snprintf(hpath, sizeof(hpath), "%s/characters/%s.json", dst, iconNames[k]);
             char h[32];
             MI_HealthIcon(hpath, iconNames[k], h, sizeof(h));
-            // stage nao e personagem: icon ausente so nao copia (sem erro).
             MI_IconFor(srcMod, modIcons, h, iconNames[k], &st);
         }
     }
