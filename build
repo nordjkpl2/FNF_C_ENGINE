@@ -53,3 +53,5 @@ gcc main.c src/*.c lib/*.c -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./l
 >>Limites Fisicos de Software
     O Limite de Quando da Pra Armazenar Com o Char Atual de Score é 9 Septilhões de Score (25 ou 32 caracteres dependendo dos sinais que sair)
     Misses nem vou contar porque o botplay nao funciona errando as notas e ganhando vida
+
+    Chart Editor / Song e Character pra trocar de cjson pra yyjson

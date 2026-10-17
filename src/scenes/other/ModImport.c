@@ -1,3 +1,4 @@
+/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 #include "std.h"
 #include "scenes/ModImport.h"
 #include "yyjson.h"
