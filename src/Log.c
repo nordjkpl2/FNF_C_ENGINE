@@ -1,15 +1,12 @@
 /* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 #include "Log.h"
-
+/* // * log direto no cmd, só */
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <unistd.h>
 
-// write() direto no fileno: sem buffer stdio, sem locale, sem lock.
-// Vale no Windows (MinGW mapeia pro CRT) e no resto.
-//====
 // ^ funções públicas que não tem log no nome
 static void RawWrite(int fd, const char* s, size_t n) {
     while(n > 0) {

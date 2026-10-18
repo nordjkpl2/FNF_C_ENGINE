@@ -1,6 +1,7 @@
 /* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 #include "scenes/Note.h" 
 #include "scenes/AllScenes.h"
+/* // * Animações de Nota */
 
 #define FIND_ANIMS(arr, L, D, U, R, anims) {\
         arr[0] = AnimationSet_FindAnimation(anims, L);\

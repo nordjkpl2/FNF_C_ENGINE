@@ -1,5 +1,6 @@
 /* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 #include "scenes/BeatManager.h" 
+/* //* Beat Manager e onStep*/
 
 void BeatManager_New(BeatManager* mng) {
     mng->beat = 0;

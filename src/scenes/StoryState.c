@@ -2,7 +2,7 @@
 
 #include"scenes/AllScenes.h"
 #include"scenes/SongList.h"
-
+/* // * StoreMode Código wowowow */
 // Story: lista de weeks tracklist, dificuldade, campanha.
 // DELETE apaga a week com confirmacao.
 

@@ -1,7 +1,7 @@
 /* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 
 #include "scenes/AllScenes.h"
-
+/* // * Cenas e Animações de Nota */
 #define NOTE_SKIN_MAX 16
 #define NOTE_SKIN_NAME_MAX 31
 

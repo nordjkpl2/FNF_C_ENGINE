@@ -1,7 +1,7 @@
 /* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 
 #include"scenes/AllScenes.h"
-
+/* // * Tela de Loading pra não ter que esperar carregar charts de teste de estresse ou que demoram pra carregar */
 // Presents one loading frame, then runs the heavy PlayState load
 // (blocking). Used only for heavy songs; light ones go direct.
 static char pendingDir[256];

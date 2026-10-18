@@ -1,7 +1,7 @@
 /* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 #include "Render.h"
 #include "Game.h"
-
+/* //* Definições de Animação e Renderização, como padrão atualização etc*/
 static Vector2 zero = {0, 0};
 static Camera2D* targetCamera = NULL;
 // Renderização de Camera

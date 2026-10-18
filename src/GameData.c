@@ -1,7 +1,7 @@
 /* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 #include "GameData.h" 
 #include "Log.h"
-
+/* // * Código da Aba de Configurações e aqui que gera o arquivo .data do save (oq foi configurado nas configurações) */
 #define IERR Log_Fatal("[ SAVE ] invalid data");
 #define READ(type, count, output) if(fread(&output, sizeof(type), count, saveFile) != count) IERR
 #define WRITE(type, count, source) if(fwrite(&source, sizeof(type), count, saveFile) != count) Log_Fatal("[ SAVE ] unable to write to save file!");

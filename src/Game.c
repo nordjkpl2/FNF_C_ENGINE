@@ -3,6 +3,7 @@
 #include "Game.h"
 #include "GameData.h"
 #include "Log.h"
+/* // * Janela Principal definições de volume fps e tudo oq for global e muito necessário wowowow*/
  
 RayGame game; 
 /* screen */

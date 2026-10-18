@@ -2,6 +2,7 @@
 #include "std.h"
 #include "scenes/Stage.h"
 #include <ctype.h>
+/* // * Stage (fundo) Código */
 
 static const char* ModRoot(const char* songDir, char out[256]) {
     const char* pm = strstr(songDir, "assets/mods/");

@@ -1,7 +1,7 @@
 /* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 
 #include "scenes/AllScenes.h"
-
+/* // * Código dos Textos da Aba de Opções */
 typedef struct {
     char* text;
     enum OptionValueType    { 

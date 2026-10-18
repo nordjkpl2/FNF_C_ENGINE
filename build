@@ -7,6 +7,7 @@ build (fnf c engine (c) 2026 nordjkpl and as name Mawh/na Corporation)
         2.Map
         Backup
         >>Limites Fisicos de Software
+        >>>Global
 
 1. Build
     Código de Compilação Comum Atual
@@ -54,4 +55,24 @@ gcc main.c src/*.c lib/*.c -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./l
     O Limite de Quando da Pra Armazenar Com o Char Atual de Score é 9 Septilhões de Score (25 ou 32 caracteres dependendo dos sinais que sair)
     Misses nem vou contar porque o botplay nao funciona errando as notas e ganhando vida
 
-    Chart Editor / Song e Character pra trocar de cjson pra yyjson
+>>> Global
+// helpers yyjson -> corrige bug do int vs double
+static inline double yy_to_double(yyjson_val *v){
+    if(yyjson_is_real(v)) return yyjson_get_real(v);
+    if(yyjson_is_sint(v)) return (double)yyjson_get_sint(v);
+    if(yyjson_is_uint(v)) return (double)yyjson_get_uint(v);
+    return 0;
+}
+static inline int yy_to_int(yyjson_val *v){
+    if(yyjson_is_sint(v)) return (int)yyjson_get_sint(v);
+    if(yyjson_is_uint(v)) return (int)yyjson_get_uint(v);
+    if(yyjson_is_real(v)) return (int)yyjson_get_real(v);
+    return 0;
+}
+// Leitor numérico seguro para yyjson (suporta UINT, SINT e REAL sem perda de precisão)
+static double YYJSON_GetNum(yyjson_val* val, double default_val) {
+    if (!yyjson_is_num(val)) return default_val;
+    if (yyjson_is_int(val))  return (double)yyjson_get_int(val);
+    if (yyjson_is_uint(val)) return (double)yyjson_get_uint(val);
+    return yyjson_get_real(val);
+}

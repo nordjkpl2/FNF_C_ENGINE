@@ -2,7 +2,8 @@
 #include"std.h"
 #include"scenes/Week.h"
 #include"scenes/SongList.h"
-#include"cJSON.h"
+#include"yyjson.h"
+/* // * Week Código */
 
 static const char* DIFFS[3] = {"easy", "normal", "hard"};
 
@@ -40,50 +41,56 @@ char Week_ParseFile(const char* path, const char* dir, const char* fileBase, Wee
     buf[size] = 0;
     fclose(f);
 
-    cJSON* root = cJSON_Parse(buf);
+    yyjson_doc* doc = yyjson_read(buf, (size_t)size, 0);
     free(buf);
-    if(root == NULL)
+    if(doc == NULL)
         return 0;
-
-    cJSON* jhide = cJSON_GetObjectItem(root, "hideStoryMode");
-    if(cJSON_IsTrue(jhide)) {
-        cJSON_Delete(root);
+    
+    yyjson_val* root = yyjson_doc_get_root(doc);
+    if(root == NULL) {
+        yyjson_doc_free(doc);
         return 0;
     }
 
-    cJSON* jstory = cJSON_GetObjectItem(root, "storyName");
-    cJSON* jweek = cJSON_GetObjectItem(root, "weekName");
-    if(cJSON_IsString(jstory) && jstory->valuestring[0] != 0)
-        StrCopy(out->title, sizeof(out->title), jstory->valuestring, fileBase);
-    else if(cJSON_IsString(jweek) && jweek->valuestring[0] != 0)
-        StrCopy(out->title, sizeof(out->title), jweek->valuestring, fileBase);
+    yyjson_val* jhide = yyjson_obj_get(root, "hideStoryMode");
+    if(yyjson_is_bool(jhide) && yyjson_get_bool(jhide)) {
+        yyjson_doc_free(doc);
+        return 0;
+    }
+
+    yyjson_val* jstory = yyjson_obj_get(root, "storyName");
+    yyjson_val* jweek = yyjson_obj_get(root, "weekName");
+    if(yyjson_is_str(jstory) && yyjson_get_str(jstory)[0] != 0)
+        StrCopy(out->title, sizeof(out->title), yyjson_get_str(jstory), fileBase);
+    else if(yyjson_is_str(jweek) && yyjson_get_str(jweek)[0] != 0)
+        StrCopy(out->title, sizeof(out->title), yyjson_get_str(jweek), fileBase);
     else
         StrCopy(out->title, sizeof(out->title), fileBase, "week");
 
     // frase da week (mostra so se o json definir; Psych nao tem)
-    cJSON* jflavor = cJSON_GetObjectItem(root, "flavor");
-    if(!cJSON_IsString(jflavor))
-        jflavor = cJSON_GetObjectItem(root, "description");
-    if(cJSON_IsString(jflavor) && jflavor->valuestring[0] != 0)
-        StrCopy(out->flavor, sizeof(out->flavor), jflavor->valuestring, "");
+    yyjson_val* jflavor = yyjson_obj_get(root, "flavor");
+    if(!yyjson_is_str(jflavor))
+        jflavor = yyjson_obj_get(root, "description");
+    if(yyjson_is_str(jflavor) && yyjson_get_str(jflavor)[0] != 0)
+        StrCopy(out->flavor, sizeof(out->flavor), yyjson_get_str(jflavor), "");
     else
         out->flavor[0] = 0;
 
-    cJSON* jsongs = cJSON_GetObjectItem(root, "songs");
-    if(cJSON_IsArray(jsongs)) {
-        int n = cJSON_GetArraySize(jsongs);
-        for(int i = 0; i < n && out->songCount < WEEK_MAX_SONGS; i++) {
-            cJSON* js = cJSON_GetArrayItem(jsongs, i);
-            if(!cJSON_IsArray(js) || cJSON_GetArraySize(js) < 1)
+    yyjson_val* jsongs = yyjson_obj_get(root, "songs");
+    if(yyjson_is_arr(jsongs)) {
+        size_t n = yyjson_arr_size(jsongs);
+        for(size_t i = 0; i < n && out->songCount < WEEK_MAX_SONGS; i++) {
+            yyjson_val* js = yyjson_arr_get(jsongs, i);
+            if(!yyjson_is_arr(js) || yyjson_arr_size(js) < 1)
                 continue;
-            cJSON* jn = cJSON_GetArrayItem(js, 0);
-            cJSON* jc = cJSON_GetArraySize(js) > 1 ? cJSON_GetArrayItem(js, 1) : NULL;
-            if(!cJSON_IsString(jn) || jn->valuestring[0] == 0)
+            yyjson_val* jn = yyjson_arr_get(js, 0);
+            yyjson_val* jc = yyjson_arr_size(js) > 1 ? yyjson_arr_get(js, 1) : NULL;
+            if(!yyjson_is_str(jn) || yyjson_get_str(jn)[0] == 0)
                 continue;
             WeekSong* w = out->songs + out->songCount;
-            StrCopy(w->song, sizeof(w->song), jn->valuestring, "?");
-            if(cJSON_IsString(jc))
-                StrCopy(w->character, sizeof(w->character), jc->valuestring, "");
+            StrCopy(w->song, sizeof(w->song), yyjson_get_str(jn), "?");
+            if(yyjson_is_str(jc))
+                StrCopy(w->character, sizeof(w->character), yyjson_get_str(jc), "");
             else
                 w->character[0] = 0;
             // [2] = [r,g,b]: nosso motor nao usa, ignora de proposito
@@ -91,7 +98,7 @@ char Week_ParseFile(const char* path, const char* dir, const char* fileBase, Wee
         }
     }
 
-    cJSON_Delete(root);
+    yyjson_doc_free(doc);
     return (out->songCount > 0);
 }
 

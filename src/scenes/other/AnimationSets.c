@@ -2,6 +2,7 @@
 #include "scenes/AllScenes.h" 
 #include "Log.h"
 #include <limits.h>
+/* // * Animações de Personagens */
 
 #define IERR Log_Fatal("invalid data");
 #define CHECK_LEN(readOperation, expectedSize) if(readOperation != expectedSize) IERR

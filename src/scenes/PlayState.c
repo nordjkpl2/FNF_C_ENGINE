@@ -4,6 +4,7 @@
 #include"scenes/Note.h"
 #include"scenes/Song.h"
 //!OUTD day16/10/2026
+/* // * Gameplay Score Misses e Tempo */
 
 static float smooth(float a, float b, float c) {
     return Lerp(a, b, c * c * c * c);

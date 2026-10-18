@@ -1,6 +1,7 @@
 /* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 
-/* // ! Menu | MODDING > Import Mod | Here*/
+/* // * Menu | MODDING > Import Mod
+//* eo Resto da aba de modding um pouco */
 
 #include"scenes/AllScenes.h"
 #include"scenes/ModImport.h"

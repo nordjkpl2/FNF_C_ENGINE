@@ -1,7 +1,7 @@
 /* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 
 #include"scenes/AllScenes.h"
-
+/* //* Main Menu */
 typedef struct {
     RayAnimatedObject button;
     int idle;

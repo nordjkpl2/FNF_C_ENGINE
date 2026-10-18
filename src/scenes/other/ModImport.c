@@ -3,6 +3,7 @@
 #include "scenes/ModImport.h"
 #include "yyjson.h"
 #include <io.h> // rmdir (apagar pastas vazias no delete)
+/* // * Modding mod import */
 
 // ---------- util ----------
 static const char* MI_Base(const char* p) {

@@ -2,6 +2,7 @@
 #include"std.h"
 #include"scenes/Song.h"
 #include"scenes/SongList.h"
+/* //* */
 
 static SongEntry* entries = NULL;
 static int entryCount = 0;

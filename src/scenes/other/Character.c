@@ -1,12 +1,13 @@
 /* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 #include"scenes/Character.h"
-#include"cJSON.h"
 #include"yyjson.h"
+/* //* Animações de Personagens */
 
 // raiz do mod extraida do songDir (assets/mods/<mod>/...), "" = base.
 // ~ Line 70 Eu Acho tem q listar aqui o que é
 static char charModRoot[256] = {0};
-
+// 1, personagens e gameplay
+// ? assets/mods/songs
 void Character_SetSongDir(const char* songDir) {
     charModRoot[0] = 0;
     if(songDir == NULL)

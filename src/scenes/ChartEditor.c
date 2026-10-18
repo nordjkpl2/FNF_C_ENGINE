@@ -1,13 +1,25 @@
 /* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
-
+/* // * Código do Chart Editor */
 #include"scenes/AllScenes.h"
 #include"scenes/Song.h"
 #include"scenes/SongList.h"
 #include"scenes/Stage.h"
 #include"scenes/Note.h"
-#include"cJSON.h"
 #include"yyjson.h"
-
+// helpers yyjson -> corrige bug do int vs double
+static inline double yy_to_double(yyjson_val *v){
+    if(yyjson_is_real(v)) return yyjson_get_real(v);
+    if(yyjson_is_sint(v)) return (double)yyjson_get_sint(v);
+    if(yyjson_is_uint(v)) return (double)yyjson_get_uint(v);
+    return 0;
+}
+static inline int yy_to_int(yyjson_val *v){
+    if(yyjson_is_sint(v)) return (int)yyjson_get_sint(v);
+    if(yyjson_is_uint(v)) return (int)yyjson_get_uint(v);
+    if(yyjson_is_real(v)) return (int)yyjson_get_real(v);
+    return 0;
+}
+/* // * Código do Chart Editor */
 // Chart Editor v1: palavras simples, sem jargao.
 // PICKER (escolher musica / abrir json) -> EDIT (grade) -> F5 testa no jogo.
 // ^ 1. Chart
@@ -273,22 +285,8 @@ static char EdChart_LoadJSON(EdChart* c, const char* jsonPath, const char* dir, 
     }
     buf[size] = 0;
     fclose(f);
-/*
-    cJSON* root = cJSON_Parse(buf);
-    free(buf);
-    if(root == NULL)
-        return 0;
-    cJSON* js = cJSON_GetObjectItem(root, "song");
-    if(js == NULL)
-        js = root;
 
-    cJSON* jnotes = cJSON_GetObjectItem(js, "notes");
-    if(!cJSON_IsArray(jnotes)) {
-        cJSON_Delete(root);
-        return 0;
-    }
-*/ // migração pra yyjson, código em c json ta emcima
-    yyjson_doc* doc = yyjson_read(buf, strlen(buf), 0);
+    yyjson_doc* doc = yyjson_read(buf, (size_t)size, 0);
     free(buf);
     if(doc == NULL)
         return 0;
@@ -312,86 +310,15 @@ static char EdChart_LoadJSON(EdChart* c, const char* jsonPath, const char* dir, 
     EdChart tmp;
     EdChart_Default(&tmp, fallbackName);
     strncpy(tmp.dir, dir, sizeof(tmp.dir) - 1);
-/*
-    cJSON* j = cJSON_GetObjectItem(js, "song");
-    if(cJSON_IsString(j)) strncpy(tmp.name, j->valuestring, sizeof(tmp.name) - 1);
-    j = cJSON_GetObjectItem(js, "bpm");
-    if(cJSON_IsNumber(j) && j->valuedouble >= 10) tmp.bpm = (float)j->valuedouble;
-    j = cJSON_GetObjectItem(js, "speed");
-    if(cJSON_IsNumber(j) && j->valuedouble > 0) tmp.speed = (float)j->valuedouble;
-    j = cJSON_GetObjectItem(js, "player1");
-    if(cJSON_IsString(j)) strncpy(tmp.p1, j->valuestring, sizeof(tmp.p1) - 1);
-    j = cJSON_GetObjectItem(js, "player2");
-    if(cJSON_IsString(j)) strncpy(tmp.p2, j->valuestring, sizeof(tmp.p2) - 1);
-    j = cJSON_GetObjectItem(js, "stage");
-    if(cJSON_IsString(j)) strncpy(tmp.stage, j->valuestring, sizeof(tmp.stage) - 1);
-    j = cJSON_GetObjectItem(js, "gfVersion");
-    if(cJSON_IsString(j)) strncpy(tmp.gf, j->valuestring, sizeof(tmp.gf) - 1);
-    // noteSkin: custom note skin name
-    j = cJSON_GetObjectItem(js, "noteSkin");
-    if(cJSON_IsString(j)) strncpy(tmp.noteSkin, j->valuestring, sizeof(tmp.noteSkin) - 1);
-    else
-        tmp.noteSkin[0] = 0;
 
-    int nsec = cJSON_GetArraySize(jnotes);
-    if(nsec > 0) {
-        EdChart_Free(&tmp);
-        tmp.secs = calloc((size_t)nsec, sizeof(EdSec));
-        tmp.nsec = nsec;
-        float runBpm = tmp.bpm;
-        for(int i = 0; i < nsec; i++) {
-            cJSON* jsec = cJSON_GetArrayItem(jnotes, i);
-            EdSec* s = tmp.secs + i;
-            s->lenSteps = 16;
-            s->bpm = runBpm;
-            if(!cJSON_IsObject(jsec))
-                continue;
-            cJSON* jl = cJSON_GetObjectItem(jsec, "lengthInSteps");
-            if(jl == NULL) jl = cJSON_GetObjectItem(jsec, "lengthinsteps");
-            if(cJSON_IsNumber(jl) && jl->valuedouble >= 1) s->lenSteps = (int)jl->valuedouble;
-            if(cJSON_IsTrue(cJSON_GetObjectItem(jsec, "mustHitSection"))) s->mustHit = 1;
-            cJSON* jb = cJSON_GetObjectItem(jsec, "bpm");
-            if(cJSON_IsTrue(cJSON_GetObjectItem(jsec, "changeBPM")) && cJSON_IsNumber(jb) && jb->valuedouble >= 10) {
-                runBpm = (float)jb->valuedouble;
-                s->changeBPM = 1;
-            }
-            s->bpm = runBpm;
-            cJSON* jarr = cJSON_GetObjectItem(jsec, "sectionNotes");
-            if(!cJSON_IsArray(jarr))
-                continue;
-            int rn = cJSON_GetArraySize(jarr);
-            for(int k = 0; k < rn; k++) {
-                cJSON* jn = cJSON_GetArrayItem(jarr, k);
-                if(!cJSON_IsArray(jn) || cJSON_GetArraySize(jn) < 2)
-                    continue;
-                cJSON* jt = cJSON_GetArrayItem(jn, 0);
-                cJSON* ji = cJSON_GetArrayItem(jn, 1);
-                cJSON* jln = cJSON_GetArraySize(jn) > 2 ? cJSON_GetArrayItem(jn, 2) : NULL;
-                if(!cJSON_IsNumber(jt) || !cJSON_IsNumber(ji) || jt->valuedouble < 0)
-                    continue;
-                int lane = ((int)ji->valuedouble) % 8;
-                if(lane < 0) lane += 8;
-                float len = (cJSON_IsNumber(jln) && jln->valuedouble > 0) ? (float)jln->valuedouble : 0;
-                EdSec_AddBulk(s, (float)jt->valuedouble, lane, len);
-            }
-            EdSec_FinishBulk(s);
-        }
-    }
-
-    cJSON_Delete(root);
-    EdChart_Free(c);
-    *c = tmp;
-    return 1;
-}
-*/
     yyjson_val* j = yyjson_obj_get(js, "song");
     if(yyjson_is_str(j)) strncpy(tmp.name, yyjson_get_str(j), sizeof(tmp.name) - 1);
-    
+
     j = yyjson_obj_get(js, "bpm");
-    if(yyjson_is_num(j) && yyjson_get_real(j) >= 10) tmp.bpm = (float)yyjson_get_real(j);
+    if(yyjson_is_num(j) && yy_to_double(j) >= 10) tmp.bpm = (float)yy_to_double(j);
     
     j = yyjson_obj_get(js, "speed");
-    if(yyjson_is_num(j) && yyjson_get_real(j) > 0) tmp.speed = (float)yyjson_get_real(j);
+    if(yyjson_is_num(j) && yy_to_double(j) > 0) tmp.speed = (float)yy_to_double(j);
     
     j = yyjson_obj_get(js, "player1");
     if(yyjson_is_str(j)) strncpy(tmp.p1, yyjson_get_str(j), sizeof(tmp.p1) - 1);
@@ -467,14 +394,11 @@ s->bpm = runBpm;
                 yyjson_val* ji = yyjson_arr_get(jn, 1);
                 yyjson_val* jln = yyjson_arr_size(jn) > 2 ? yyjson_arr_get(jn, 2) : NULL;
                 
-                if(!yyjson_is_num(jt) || !yyjson_is_num(ji) || yyjson_get_real(jt) < 0)
-                    continue;
-                    
-                int lane = ((int)yyjson_get_int(ji)) % 8;
-                if(lane < 0) lane += 8;
-                float len = (yyjson_is_num(jln) && yyjson_get_real(jln) > 0) ? (float)yyjson_get_real(jln) : 0;
-                
-                EdSec_AddBulk(s, (float)yyjson_get_real(jt), lane, len);
+                if(yyjson_is_num(jl) && yy_to_double(jl) >= 1) s->lenSteps = yy_to_int(jl);
+                int lane = yy_to_int(ji) % 8; // agora funciona pra 0 e 0.0
+                float len = (yyjson_is_num(jln) && yy_to_double(jln) > 0) ? (float)yy_to_double(jln) : 0;
+
+                EdSec_AddBulk(s, (float)yy_to_double(jt), lane, len); // tempo correto
             }
             EdSec_FinishBulk(s);
         }
@@ -548,8 +472,6 @@ static const char* DirName(const char* path) {
     return (s != NULL) ? s + 1 : path;
 }
 
-// abre pasta de musica (data.json, senao Psych <pasta>.json, senao qualquer chart, senao binario)
-// corrige NAO ABRIA mods tipo milf/milf.json e satin-panties/*.json
 static char EdLooksLikeChart(const char* path) {
     FILE* f = fopen(path, "rb");
     if(f == NULL) return 0;
@@ -562,14 +484,21 @@ static char EdLooksLikeChart(const char* path) {
     if(fread(buf, 1, (size_t)size, f) != (size_t)size) { free(buf); fclose(f); return 0; }
     buf[size] = 0;
     fclose(f);
-    cJSON* root = cJSON_Parse(buf);
+
+    yyjson_doc* doc = yyjson_read(buf, (size_t)size, 0);
     free(buf);
-    if(root == NULL) return 0;
-    cJSON* js = cJSON_GetObjectItem(root, "song");
+    if(doc == NULL) return 0;
+
+    yyjson_val* root = yyjson_doc_get_root(doc);
+    if(root == NULL) { yyjson_doc_free(doc); return 0; }
+
+    yyjson_val* js = yyjson_obj_get(root, "song");
     if(js == NULL) js = root;
-    cJSON* jn = cJSON_GetObjectItem(js, "notes");
-    char ok = (cJSON_IsArray(jn) && cJSON_GetArraySize(jn) > 0);
-    cJSON_Delete(root);
+
+    yyjson_val* jn = yyjson_obj_get(js, "notes");
+    char ok = (yyjson_is_arr(jn) && yyjson_arr_size(jn) > 0);
+
+    yyjson_doc_free(doc);
     return ok;
 }
 
@@ -625,61 +554,76 @@ static char EdChart_SaveCompressed(const EdChart* c) {
 static char EdChart_SaveEx(const EdChart* c, char compressed) {
     if(c->dir[0] == 0)
         return 0;
-    cJSON* root = cJSON_CreateObject();
-    cJSON* js = cJSON_CreateObject();
-    cJSON_AddItemToObject(root, "song", js);
-    cJSON_AddStringToObject(js, "song", c->name);
-    if(!compressed || c->bpm != 100.0f) cJSON_AddNumberToObject(js, "bpm", c->bpm);
-    if(!compressed || c->speed != 1.0f) cJSON_AddNumberToObject(js, "speed", c->speed);
-    cJSON_AddStringToObject(js, "player1", c->p1);
-    cJSON_AddStringToObject(js, "player2", c->p2);
-    cJSON_AddStringToObject(js, "stage", c->stage);
+
+    yyjson_mut_doc* doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val* root = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root);
+
+    yyjson_mut_val* js = yyjson_mut_obj(doc);
+    yyjson_mut_obj_add_val(doc, root, "song", js);
+
+    yyjson_mut_obj_add_str(doc, js, "song", c->name);
+    if(!compressed || c->bpm != 100.0f) yyjson_mut_obj_add_real(doc, js, "bpm", c->bpm);
+    if(!compressed || c->speed != 1.0f) yyjson_mut_obj_add_real(doc, js, "speed", c->speed);
+    yyjson_mut_obj_add_str(doc, js, "player1", c->p1);
+    yyjson_mut_obj_add_str(doc, js, "player2", c->p2);
+    yyjson_mut_obj_add_str(doc, js, "stage", c->stage);
     if(!compressed || (c->gf[0] != 0 && strcmp(c->gf, "gf") != 0))
-        cJSON_AddStringToObject(js, "gfVersion", c->gf[0] != 0 ? c->gf : "gf");
+        yyjson_mut_obj_add_str(doc, js, "gfVersion", c->gf[0] != 0 ? c->gf : "gf");
     if(!compressed || c->noteSkin[0] != 0)
-        cJSON_AddStringToObject(js, "noteSkin", c->noteSkin);
-    cJSON* jnotes = cJSON_CreateArray();
-    cJSON_AddItemToObject(js, "notes", jnotes);
+        yyjson_mut_obj_add_str(doc, js, "noteSkin", c->noteSkin);
+
+    yyjson_mut_val* jnotes = yyjson_mut_arr(doc);
+    yyjson_mut_obj_add_val(doc, js, "notes", jnotes);
+
     float runBpm = c->bpm;
     for(int i = 0; i < c->nsec; i++) {
         const EdSec* s = c->secs + i;
-        cJSON* jsec = cJSON_CreateObject();
-        cJSON_AddItemToArray(jnotes, jsec);
+        yyjson_mut_val* jsec = yyjson_mut_obj(doc);
+        yyjson_mut_arr_append(jnotes, jsec);
+
         if(!compressed || s->lenSteps != 16)
-            cJSON_AddNumberToObject(jsec, "lengthInSteps", s->lenSteps);
+            yyjson_mut_obj_add_int(doc, jsec, "lengthInSteps", s->lenSteps);
         if(!compressed || s->mustHit)
-            cJSON_AddBoolToObject(jsec, "mustHitSection", s->mustHit);
+            yyjson_mut_obj_add_bool(doc, jsec, "mustHitSection", s->mustHit);
+
         char change = (s->bpm != runBpm);
         if(change) runBpm = s->bpm;
         if(!compressed || change)
-            cJSON_AddNumberToObject(jsec, "bpm", s->bpm);
+            yyjson_mut_obj_add_real(doc, jsec, "bpm", s->bpm);
         if(!compressed || change)
-            cJSON_AddBoolToObject(jsec, "changeBPM", change);
-        cJSON* jarr = cJSON_CreateArray();
-        cJSON_AddItemToObject(jsec, "sectionNotes", jarr);
+            yyjson_mut_obj_add_bool(doc, jsec, "changeBPM", change);
+
+        yyjson_mut_val* jarr = yyjson_mut_arr(doc);
+        yyjson_mut_obj_add_val(doc, jsec, "sectionNotes", jarr);
+
         for(int k = 0; k < s->count; k++) {
-            cJSON* jn = cJSON_CreateArray();
-            cJSON_AddItemToArray(jarr, jn);
-            cJSON_AddItemToArray(jn, cJSON_CreateNumber(s->notes[k].time));
-            cJSON_AddItemToArray(jn, cJSON_CreateNumber(s->notes[k].lane));
+            yyjson_mut_val* jn = yyjson_mut_arr(doc);
+            yyjson_mut_arr_append(jarr, jn);
+            yyjson_mut_arr_append(jn, yyjson_mut_real(doc, s->notes[k].time));
+            yyjson_mut_arr_append(jn, yyjson_mut_int(doc, s->notes[k].lane));
             if(!compressed || s->notes[k].len != 0.0f)
-                cJSON_AddItemToArray(jn, cJSON_CreateNumber(s->notes[k].len));
+                yyjson_mut_arr_append(jn, yyjson_mut_real(doc, s->notes[k].len));
         }
     }
-    char* txt = compressed ? cJSON_PrintUnformatted(root) : cJSON_Print(root);
-    cJSON_Delete(root);
+
+    size_t len = 0;
+    yyjson_write_flag flag = compressed ? 0 : YYJSON_WRITE_PRETTY;
+    char* txt = yyjson_mut_write(doc, flag, &len);
+    yyjson_mut_doc_free(doc);
     if(txt == NULL)
         return 0;
+
     char p[300];
     snprintf(p, sizeof(p), "%s/data.json", c->dir);
     FILE* f = fopen(p, "w");
     if(f == NULL) {
-        cJSON_free(txt);
+        free(txt);
         return 0;
     }
-    fwrite(txt, 1, strlen(txt), f);
+    fwrite(txt, 1, len, f);
     fclose(f);
-    cJSON_free(txt);
+    free(txt);
     return 1;
 }
 
@@ -884,23 +828,28 @@ static char StageOfDir(const char* dir, char out[32]) {
             if(buf != NULL) {
                 if(fread(buf, 1, (size_t)size, f) == (size_t)size) {
                     buf[size] = 0;
-                    cJSON* root = cJSON_Parse(buf);
-                    if(root != NULL) {
-                        cJSON* js = cJSON_GetObjectItem(root, "song");
-                        if(js == NULL) js = root;
-                        cJSON* jst = cJSON_GetObjectItem(js, "stage");
-                        if(cJSON_IsString(jst)) {
-                            strncpy(out, jst->valuestring, 31);
-                            out[31] = 0;
-                            cJSON_Delete(root);
-                            free(buf);
-                            fclose(f);
-                            return 1;
+                    yyjson_doc* doc = yyjson_read(buf, (size_t)size, 0);
+                    free(buf);
+                    if(doc != NULL) {
+                        yyjson_val* root = yyjson_doc_get_root(doc);
+                        if(root != NULL) {
+                            yyjson_val* js = yyjson_obj_get(root, "song");
+                            if(js == NULL) js = root;
+                            yyjson_val* jst = yyjson_obj_get(js, "stage");
+                            if(yyjson_is_str(jst)) {
+                                const char* s = yyjson_get_str(jst);
+                                strncpy(out, s, 31);
+                                out[31] = 0;
+                                yyjson_doc_free(doc);
+                                fclose(f);
+                                return 1;
+                            }
                         }
-                        cJSON_Delete(root);
+                        yyjson_doc_free(doc);
                     }
+                } else {
+                    free(buf);
                 }
-                free(buf);
             }
         }
         fclose(f);

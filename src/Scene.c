@@ -1,7 +1,6 @@
 /* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 #include "Scene.h"
-// ~ Name Auto Explain What Have Here
-// ^ Generic Create and Destroy Scenes part of Code
+/* //* O Código que Gera e Destroi as Cenas, se remover isso a tela fica preta */
 
 inline void RayScene_Create(RayScene* scene, RaySceneFunctions functions) { 
     scene->functions = functions;

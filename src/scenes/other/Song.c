@@ -3,7 +3,7 @@
 #include"scenes/Song.h"
 #include"yyjson.h"
 #include"Log.h"
-// aqui tem a rendização da música btw
+// aqui tem a rendização da música btw /* //* Renderização e Import da Música */
 // ! UPDT day16/10/2026
 
 #define IERR Log_Fatal("invalid data");
