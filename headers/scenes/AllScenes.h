@@ -1,5 +1,7 @@
 /* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 #pragma once
+#ifndef ALLSCENES_H
+#define ALLSCENES_H
 
 #include "GameData.h"
 #include "BeatManager.h"
@@ -36,3 +38,4 @@ RayAnimationHandler Cache_GetNoteSkin(const char* skinName, const char* songDir)
 RayAnimationHandler* Cache_GetDefaultNoteSkinPtr(void);
 void Cache_UnloadCustomNoteSkins(void);
 
+#endif
