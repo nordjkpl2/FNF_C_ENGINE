@@ -594,20 +594,7 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
     // pre-warm: force GPU upload + audio decode now while the loading
     // screen is up, so the song start does not hitch on first use
     {
-        BeginDrawing();
         ClearBackground(BLACK);
-        DrawTexture(dad.object.animationSet.texture, -5000, -5000, WHITE);
-        DrawTexture(bf.object.animationSet.texture, -5000, -5000, WHITE);
-        DrawTexture(gf.object.animationSet.texture, -5000, -5000, WHITE);
-        for(int i = 0; i < stage.objectCount; i++)
-            DrawTexture(stage.objects[i].image, -5000, -5000, WHITE);
-        DrawTexture(Cache_GetNoteAnimations().texture, -5000, -5000, WHITE);
-        DrawTexture(uiAssets.texture, -5000, -5000, WHITE);
-        DrawTexture(dad.icon, -5000, -5000, WHITE);
-        DrawTexture(bf.icon, -5000, -5000, WHITE);
-        //DrawTextEx(mainFont, "WARM", (Vector2) {-5000, -5000}, 32, 1, WHITE);
-        //DrawTextEx(vcrFont, "WARM", (Vector2) {-5000, -5000}, 16, 1, WHITE);
-        EndDrawing();
         for(int i = 0; i < 10; i++) {
             UpdateMusicStream(inst);
             Voices_Update();
@@ -798,50 +785,21 @@ static void NoteHits() {
             }
         } 
     }
-/* 
-    AUTOPLAY:
-    // botplay: acerta tudo sozinho, cai nos visuais do BRUH abaixo
+
+   AUTOPLAY:
     if(game_options_botplay) {
         for(size_t i = firstNote; i < noteCount; i++) {
             Note* note = notes + i;
-
-            if(!note->mustHit || note->missed || note->pressed)
-                continue;
-
-            if(Note_TooEarly(note, songBeat.time))
-                break;
-
-            if(note->id < 0 || note->id > 3)
-                continue;
-
-            if(Note_CanBeHit(note, songBeat.time) && !pressed[note->id]) {
-                pressed[note->id] = 1;
-                HitNote(note);
-
-                AnimatedObject_SetAnimation(&bf.object, bf.animations.notes[note->id]);
-            }
-        }
-    }
-*/
-    AUTOPLAY:
-    if(game_options_botplay) {
-        for(size_t i = firstNote; i < noteCount; i++) {
-            Note* note = notes + i;
-
-            if(!note->mustHit || note->missed || note->pressed)
-                continue;
-
-            if(note->id < 0 || note->id > 3)
-                continue;
-
-            // Se estiver dentro da janela de hit, o botplay acerta instantaneamente
+            if(Note_TooEarly(note, songBeat.time)) break; // <-- ADICIONA ESSA LINHA PRIMEIRA
+            if(!note->mustHit || note->missed || note->pressed) continue;
+            if(note->id < 0 || note->id > 3) continue;
             if(Note_CanBeHit(note, songBeat.time) && !pressed[note->id]) {
                 pressed[note->id] = 1;
                 HitNote(note);
                 AnimatedObject_SetAnimation(&bf.object, bf.animations.notes[note->id]);
             }
         }
-    }
+}
 
     BRUH:
 
@@ -1216,9 +1174,11 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
             while(firstNote < noteCount) {
                 Note* n = notes + firstNote;
                     char resolved = (n->id < 0 || n->id > 3) || n->pressed || n->missed;
-                        float pxPast = (songBeat.time - (n->time + n->length)) * 450.0f * song.speed;
-                if(resolved && pxPast > 400.0f)
-                    firstNote++;
+                /*        float pxPast = (songBeat.time - (n->time + n->length)) * 450.0f * song.speed;
+                if(resolved && pxPast > 400.0f)*/
+                    float pxPast = fabsf(songBeat.time - (n->time + n->length)) * 450.0f * song.speed;
+                    if(resolved && pxPast > 400.0f) firstNote++;
+                    //firstNote++;
                     else
                 break;
                 }
@@ -1632,6 +1592,7 @@ static void PlayState_Destroy([[maybe_unused]] RayScene* scene) {
     AnimationSet_FreeAll(&uiAssets);
     AnimationSet_FreeAll(&dad.object.animationSet);
     AnimationSet_FreeAll(&bf.object.animationSet);
+    AnimationSet_FreeAll(&gf.object.animationSet);
 
     for(int i = 0; i < stage.objectCount; i++) {
         RayGraphicObject* obj = stage.objects + i;

@@ -2,180 +2,131 @@
 #include "Render.h"
 #include "Game.h"
 /* //* Definições de Animação e Renderização, como padrão atualização etc*/
-static Vector2 zero = {0, 0};
-static Camera2D* targetCamera = NULL;
-// Renderização de Camera
-// DO NOT CHANGE THE ZOOM WHILE RENDERING THE CAMERA
-// ==========================================
-// ? 1. CÂMERA, TEXTURAS E DEFAULTS (VIDA)
-// ! 2: RENDERIZAÇÃO E GUI (desenho de gui)
-// ? 3: ANIMAÇÃO E ESTADOS (logica)
-// ========================================== yeeea
-void Render_SetCamera(Camera2D* camera) {
-    targetCamera = camera; 
-    
-    targetCamera->zoom *= RayGame_ZoomFactor();
-    targetCamera->offset = (Vector2) {RayGame_CanvasWidth() / 2, RayGame_CanvasHeight() / 2};
 
-    BeginMode2D(*camera);  
+static const Vector2 VEC_ZERO = {0,0};
+static Camera2D* s_target = NULL;
+static float s_savedZoom = 1.0f; // nunca faz /=
+
+// --- 1. CAMERA (cold path, pode ficar no .c) ---
+void Render_SetCamera(Camera2D* camera) {
+    s_target = camera;
+    s_savedZoom = camera->zoom;
+    camera->zoom *= RayGame_ZoomFactor();
+    camera->offset = (Vector2){RayGame_CanvasWidth() * 0.5f, RayGame_CanvasHeight() * 0.5f};
+    BeginMode2D(*camera);
 }
-// para a camera
-void Render_StopCamera() {
-    if(targetCamera != NULL) {
-        targetCamera->zoom /= RayGame_ZoomFactor();
-        targetCamera->offset = zero;
-        targetCamera = NULL;
+
+void Render_StopCamera(void) {
+    if (__builtin_expect(s_target != NULL, 0)) {
+        s_target->zoom = s_savedZoom; // restaura sem divisão
+        s_target->offset = VEC_ZERO;
+        s_target = NULL;
     }
     EndMode2D();
 }
-// sets default pra função de camera
-void Render_DefaultCamera(Camera2D* cam) {
-    cam->zoom = 1;
-    cam->target = (Vector2) {1280 / 2, 720 / 2};
-}
-// Carrega e Renderiza Textura
-Texture2D Render_LoadTexture(const char* path) { 
-    Image img = LoadImage(path); 
-    
-    Texture2D txt = LoadTextureFromImage(img); 
-    SetTextureFilter(txt, TEXTURE_FILTER_BILINEAR);
-    SetTextureWrap(txt, TEXTURE_WRAP_CLAMP); 
-    UnloadImage(img);
 
+void Render_DefaultCamera(Camera2D* cam) {
+    cam->zoom = 1.0f;
+    cam->target = (Vector2){640.0f, 360.0f}; // 1280/2 já pré-calculado
+}
+
+Texture2D Render_LoadTexture(const char* path) {
+    Texture2D txt = LoadTexture(path); // 1 cópia só, sem Image intermediária
+    SetTextureFilter(txt, TEXTURE_FILTER_BILINEAR);
+    SetTextureWrap(txt, TEXTURE_WRAP_CLAMP);
     return txt;
 }
-// Valores Iniciais dos Objetos de Gráfico
-void Render_DefaultRGT(RayGraphicObject* obj) {
-    obj->position = zero; 
-    obj->rotation = 0;
-    obj->scaleX = 1;
-    obj->scaleY = 1;
-    obj->objType = RGT_RECTANGLE;
-    obj->scrollFactor = (Vector2) {1, 1};
-    obj->color = WHITE;
-}
-// Animação Default
-void Render_DefaultAnimated(RayAnimatedObject* obj) {
-    obj->position = zero;
-    obj->scaleX = 1;
-    obj->scaleY = 1;
-    obj->rotation = 0; 
-    obj->color = WHITE;
-    obj->scrollFactor = (Vector2) {1, 1};
-    obj->currentAnim.isValid = 0;
-}
-// ==========================================
-// ! 2: RENDERIZAÇÃO E GUI (desenho de gui)
-// Desenha Os Objetos
-void Render_DrawGraphicObject(RayGraphicObject* obj) {
-    Vector2 scrollOffset = zero;
-    if(targetCamera != NULL) {
-        scrollOffset.x = (1 - obj->scrollFactor.x) * targetCamera->target.x;
-        scrollOffset.y = (1 - obj->scrollFactor.y) * targetCamera->target.y;
-    }  
 
-    if(obj->objType == RGT_RECTANGLE) {
-        Rectangle rect = {.x = scrollOffset.x + obj->position.x, .y = scrollOffset.y + obj->position.y, .width = obj->rectSize.x * obj->scaleX, .height = obj->rectSize.y  * obj->scaleY};
-        DrawRectanglePro(rect, zero, obj->rotation, obj->color);
-    }
-    else if(obj->objType == RGT_CIRCLE)
-        DrawCircleV((Vector2) {obj->position.x + scrollOffset.x, obj->position.y + scrollOffset.y}, obj->radius * obj->scaleX * obj->scaleY /* not sure about where to use the scale stuff here!!!!!! */, obj->color);
-    else if(obj->objType == RGT_IMAGE) {
-        DrawTexturePro(obj->image, 
-            (Rectangle) {
-                0, 0,
-                obj->image.width, obj->image.height
-            }, 
-            (Rectangle) {
-                obj->position.x + scrollOffset.x, obj->position.y + scrollOffset.y, 
-                obj->image.width * obj->scaleX, obj->image.height * obj->scaleY
-            }, zero, obj->rotation, obj->color
-        ); 
-    }
-}
-// Desenho de Objetos com Texturas
-void Render_DrawAnimatedObject(RayAnimatedObject* obj) {
-    if(!obj->currentAnim.isValid)
-        return;
-
-    Vector2 scrollOffset = zero;
-    if(targetCamera != NULL) {
-        scrollOffset.x = (1 - obj->scrollFactor.x) * targetCamera->target.x;
-        scrollOffset.y = (1 - obj->scrollFactor.y) * targetCamera->target.y;
-    } 
-    
-    RayAnimation* currentAnimation = obj->currentAnim.animationIndex + obj->animationSet.animations;
-    Frame* currentFrame = obj->currentAnim.currentFrame + currentAnimation->frames;
-    
-    Rectangle source = {.x = currentFrame->x, .y = currentFrame->y, .width = currentFrame->w, .height = currentFrame->h};
-    Rectangle dest   = {.x = scrollOffset.x + (-currentAnimation->animationOffset.x - currentFrame->fx) * obj->scaleX + obj->position.x, .y = scrollOffset.y + (-currentAnimation->animationOffset.y - currentFrame->fy) * obj->scaleY + obj->position.y, .width = currentFrame->w * obj->scaleX, .height = currentFrame->h * obj->scaleY};
-
-    DrawTexturePro(obj->animationSet.texture, source, dest, zero, obj->rotation, obj->color);
-}
-
-Vector2 GraphicObject_Sizes(RayGraphicObject* obj) {
-    Vector2 basic = zero;
-    
-    if(obj->objType == RGT_RECTANGLE)
-        basic = obj->rectSize;
-    else if(obj->objType == RGT_CIRCLE)
-        basic.x = basic.y = obj->radius * 2;
-    else if(obj->objType == RGT_IMAGE) {
-        basic.x = obj->image.width;
-        basic.y = obj->image.height;
-    }
-    
-    return (Vector2) { basic.x * obj->scaleX, basic.y * obj->scaleY };
-}
-// Tamanhos dos Objetos que se movem com Animação
-Vector2 AnimatedObject_Sizes(RayAnimatedObject* obj) {
-    if(!obj->currentAnim.isValid)
-        return zero;
-    
-    RayAnimation* currentAnimation = obj->currentAnim.animationIndex + obj->animationSet.animations;
-    Frame* currentFrame = obj->currentAnim.currentFrame + currentAnimation->frames;
-
-    return (Vector2) {
-        .x = currentFrame->w * obj->scaleX,
-        .y = currentFrame->h * obj->scaleY
+// --- 2. HOT PATH: tem que ser inline ---
+static inline Vector2 Render_GetScrollOffset(const Vector2 scrollFactor) {
+    if (__builtin_expect(s_target == NULL, 0)) return VEC_ZERO;
+    // branchless: (1 - f) * target
+    return (Vector2){
+        (1.0f - scrollFactor.x) * s_target->target.x,
+        (1.0f - scrollFactor.y) * s_target->target.y
     };
 }
-// ==========================================
-// ? 3: ANIMAÇÃO E ESTADOS (logica)
-// Update do Frame de Objetos com Texturas
-void AnimatedObject_UpdateFrame(RayAnimatedObject* obj) {
-    if(!obj->currentAnim.isValid)
-        return; 
 
-    RayAnimation* currentAnimation = obj->currentAnim.animationIndex + obj->animationSet.animations;
-    obj->currentAnim.time += RayGame_DeltaTime();
-
-    float frameTime = 1.0f / (float) currentAnimation->fps; 
-    while(obj->currentAnim.time >= frameTime) {
-        if(obj->currentAnim.currentFrame == currentAnimation->frameCount - 1) {
-            if(currentAnimation->looped) 
-                obj->currentAnim.currentFrame = 0;
-        }
-        else 
-            obj->currentAnim.currentFrame++;
-
-        obj->currentAnim.time -= frameTime;
+void Render_DrawGraphicObject(const RayGraphicObject* restrict obj) {
+    Vector2 off = Render_GetScrollOffset(obj->scrollFactor);
+    
+    switch (obj->objType) {
+        case RGT_RECTANGLE: {
+            Rectangle r = {off.x + obj->position.x, off.y + obj->position.y, obj->rectSize.x * obj->scaleX, obj->rectSize.y * obj->scaleY};
+            DrawRectanglePro(r, VEC_ZERO, obj->rotation, obj->color);
+        } break;
+        case RGT_CIRCLE: {
+            Vector2 p = {obj->position.x + off.x, obj->position.y + off.y};
+            DrawCircleV(p, obj->radius * obj->scaleX, obj->color); // scaleY não escala raio, era bug seu
+        } break;
+        case RGT_IMAGE: {
+            Rectangle src = {0, 0, (float)obj->image.width, (float)obj->image.height};
+            Rectangle dst = {obj->position.x + off.x, obj->position.y + off.y, (float)obj->image.width * obj->scaleX, (float)obj->image.height * obj->scaleY};
+            DrawTexturePro(obj->image, src, dst, VEC_ZERO, obj->rotation, obj->color);
+        } break;
     }
 }
-// Animação Finalizada
-char AnimatedObject_FinishedAnimation(RayAnimatedObject* obj) {
-    if(!obj->currentAnim.isValid)
-        return 0;
-        
-    RayAnimation* currentAnimation = obj->currentAnim.animationIndex + obj->animationSet.animations;
-    return obj->currentAnim.currentFrame == currentAnimation->frameCount - 1;
+
+void Render_DrawAnimatedObject(const RayAnimatedObject* restrict obj) {
+    if (__builtin_expect(!obj->currentAnim.isValid, 0)) return;
+
+    const RayAnimation* anim = &obj->animationSet.animations[obj->currentAnim.animationIndex];
+    const Frame* f = &anim->frames[obj->currentAnim.currentFrame];
+    Vector2 off = Render_GetScrollOffset(obj->scrollFactor);
+    
+    Rectangle src = {(float)f->x, (float)f->y, (float)f->w, (float)f->h};
+    Rectangle dst = {
+        off.x + obj->position.x + (-anim->animationOffset.x - f->fx) * obj->scaleX,
+        off.y + obj->position.y + (-anim->animationOffset.y - f->fy) * obj->scaleY,
+        (float)f->w * obj->scaleX, (float)f->h * obj->scaleY
+    };
+    DrawTexturePro(obj->animationSet.texture, src, dst, VEC_ZERO, obj->rotation, obj->color);
 }
-// Troca entre animações (depois do codigo acima que atualiza os frames)
-void AnimatedObject_SetAnimation(RayAnimatedObject* obj, int animation) {
-    obj->currentAnim = (RayAnimationState) {
-        .isValid = animation >= 0 && animation < obj->animationSet.animationCount,
-        .animationIndex = animation,
-        .currentFrame = 0,
-        .time = 0
+
+Vector2 GraphicObject_Sizes(const RayGraphicObject* restrict obj) {
+    Vector2 s;
+    switch(obj->objType) {
+        case RGT_RECTANGLE: s = obj->rectSize; break;
+        case RGT_CIRCLE: s.x = s.y = obj->radius * 2.0f; break;
+        default: s = (Vector2){(float)obj->image.width, (float)obj->image.height}; break;
+    }
+    s.x *= obj->scaleX; s.y *= obj->scaleY;
+    return s;
+}
+
+Vector2 AnimatedObject_Sizes(const RayAnimatedObject* restrict obj) {
+    if (__builtin_expect(!obj->currentAnim.isValid, 0)) return VEC_ZERO;
+    const Frame* f = &obj->animationSet.animations[obj->currentAnim.animationIndex].frames[obj->currentAnim.currentFrame];
+    return (Vector2){f->w * obj->scaleX, f->h * obj->scaleY};
+}
+
+// --- 3. ANIMAÇÃO ---
+void AnimatedObject_UpdateFrame(RayAnimatedObject* restrict obj) {
+    if (__builtin_expect(!obj->currentAnim.isValid, 0)) return;
+    RayAnimation* anim = &obj->animationSet.animations[obj->currentAnim.animationIndex];
+    obj->currentAnim.time += RayGame_DeltaTime();
+
+    float frameTime = anim->frameTime; // PRÉ-CALCULA no load: frameTime = 1.0f / fps
+    while (__builtin_expect(obj->currentAnim.time >= frameTime, 0)) {
+        obj->currentAnim.time -= frameTime;
+        if (__builtin_expect(obj->currentAnim.currentFrame == anim->frameCount - 1, 0)) {
+            if (anim->looped) obj->currentAnim.currentFrame = 0;
+            else break; // não-looped trava no último
+        } else {
+            obj->currentAnim.currentFrame++;
+        }
+    }
+}
+
+char AnimatedObject_FinishedAnimation(const RayAnimatedObject* restrict obj) {
+    if (__builtin_expect(!obj->currentAnim.isValid, 0)) return 0;
+    const RayAnimation* anim = &obj->animationSet.animations[obj->currentAnim.animationIndex];
+    return obj->currentAnim.currentFrame == anim->frameCount - 1;
+}
+
+void AnimatedObject_SetAnimation(RayAnimatedObject* restrict obj, int idx) {
+    obj->currentAnim = (RayAnimationState){
+        .isValid = (unsigned)idx < (unsigned)obj->animationSet.animationCount,
+        .animationIndex = idx, .currentFrame = 0, .time = 0
     };
 }

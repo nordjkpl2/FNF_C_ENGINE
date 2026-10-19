@@ -7,7 +7,7 @@
 static const char* ModRoot(const char* songDir, char out[256]) {
     const char* pm = strstr(songDir, "assets/mods/");
     if (pm == NULL) { out[0] = 0; return out; }
-    const char* after = pm + 12;
+    const char* after = pm + strlen("assets/mods/");
     const char* slash = strchr(after, '/');
     if (slash == NULL) {
         strncpy(out, songDir, 255);
@@ -85,9 +85,16 @@ static void ArgsOf(const char* p, char* out, size_t n) {
     a++;
     size_t w = 0;
     int depth = 1;
+    int inS = 0, inD = 0; // dentro de ' ' ou " "
     while (*a && depth > 0 && w + 1 < n) {
-        if (*a == '(') depth++;
-        else if (*a == ')') { depth--; if (depth == 0) break; }
+        char c = *a;
+        if (!inD && c == '\'' && (a == p || *(a-1) != '\\')) inS = !inS;
+        else if (!inS && c == '"' && (a == p || *(a-1) != '\\')) inD = !inD;
+        
+        if (!inS && !inD) {
+            if (c == '(') depth++;
+            else if (c == ')') { depth--; if (depth == 0) break; }
+        }
         out[w++] = *a++;
     }
     out[w] = 0;
@@ -98,124 +105,139 @@ int Stage_ParseLua(const char* luaText, StageSprite* out, int cap, int* ignoredG
     int mapCount = 0;
     int count = 0;
     int glitch = 0, anim = 0;
+    char isGraphic[STAGE_MAX_SPRITES] = {0}; // pra não deletar makeGraphic no filtro final
     const char* p = luaText;
+    
     while (*p) {
-        if (strncmp(p, "makeLuaSprite", 13) == 0) {
-            char args[512] = {0};
-            ArgsOf(p, args, sizeof(args));
-            const char* a = args;
-            char tag[64] = {0}, img[128] = {0};
-            float x = 0, y = 0;
-            if (parseQuoted(&a, tag, sizeof(tag)) && parseQuoted(&a, img, sizeof(img)) &&
-                parseFloat(&a, &x) && parseFloat(&a, &y)) {
-                int mi = FindTag(maps, mapCount, tag);
-                int idx;
-                if (mi >= 0 && maps[mi].idx >= 0) {
-                    idx = maps[mi].idx;
-                } else {
-                    if (count >= cap || count >= STAGE_MAX_SPRITES) { p++; continue; }
-                    idx = count++;
-                    memset(out + idx, 0, sizeof(*out));
-                    out[idx].scrollX = 1.0f; out[idx].scrollY = 1.0f;
-                    out[idx].scaleX = 1.0f; out[idx].scaleY = 1.0f;
-                    if (mi >= 0) maps[mi].idx = idx;
-                    else if (mapCount < STAGE_MAX_SPRITES) {
-                        strncpy(maps[mapCount].tag, tag, 63);
-                        maps[mapCount].idx = idx;
-                        mapCount++;
-                    }
-                }
-                strncpy(out[idx].image, img, 127);
-                out[idx].x = x; out[idx].y = y;
+        // 1. Pula comentários -- e --[[ ]] (senão detecta makeLuaSprite comentado)
+        if (p[0] == '-' && p[1] == '-') {
+            if (p[2] == '[' && p[3] == '[') {
+                p += 4;
+                while (*p && !(p[0] == ']' && p[1] == ']')) p++;
+                if (*p) p += 2;
+                continue;
             }
-        } else if (strncmp(p, "setLuaSpriteScrollFactor", 24) == 0 || strncmp(p, "setScrollFactor", 15) == 0) {
-            char args[256] = {0};
-            ArgsOf(p, args, sizeof(args));
-            const char* a = args;
-            char tag[64] = {0};
-            float sx = 1, sy = 1;
-            if (parseQuoted(&a, tag, sizeof(tag)) && parseFloat(&a, &sx)) {
-                if (!parseFloat(&a, &sy)) sy = sx;
-                int mi = FindTag(maps, mapCount, tag);
-                int idx = (mi >= 0) ? maps[mi].idx : -1;
-                if (idx < 0) {
-                    if (count >= cap || count >= STAGE_MAX_SPRITES) { p++; continue; }
-                    idx = count++;
-                    memset(out + idx, 0, sizeof(*out));
-                    out[idx].scrollX = 1.0f; out[idx].scrollY = 1.0f;
-                    out[idx].scaleX = 1.0f; out[idx].scaleY = 1.0f;
-                    if (mi >= 0) maps[mi].idx = idx;
-                    else if (mapCount < STAGE_MAX_SPRITES) {
-                        strncpy(maps[mapCount].tag, tag, 63);
-                        maps[mapCount].idx = idx;
-                        mapCount++;
-                    }
-                }
-                out[idx].scrollX = sx; out[idx].scrollY = sy;
-            }
-        } else if (strncmp(p, "addLuaSprite", 12) == 0) {
-            char args[256] = {0};
-            ArgsOf(p, args, sizeof(args));
-            const char* a = args;
-            char tag[64] = {0};
-            if (parseQuoted(&a, tag, sizeof(tag))) {
-                int mi = FindTag(maps, mapCount, tag);
-                int idx = (mi >= 0) ? maps[mi].idx : -1;
-                if (idx < 0) {
-                    if (count >= cap || count >= STAGE_MAX_SPRITES) { p++; continue; }
-                    idx = count++;
-                    memset(out + idx, 0, sizeof(*out));
-                    out[idx].scrollX = 1.0f; out[idx].scrollY = 1.0f;
-                    out[idx].scaleX = 1.0f; out[idx].scaleY = 1.0f;
-                    if (mi >= 0) maps[mi].idx = idx;
-                    else if (mapCount < STAGE_MAX_SPRITES) {
-                        strncpy(maps[mapCount].tag, tag, 63);
-                        maps[mapCount].idx = idx;
-                        mapCount++;
-                    }
-                }
-                char low[256] = {0};
-                size_t w = 0;
-                for (; a[w] && w + 1 < sizeof(low); w++) low[w] = (char)tolower((unsigned char)a[w]);
-                out[idx].front = (strstr(low, "true") != NULL) ? 1 : 0;
-            }
-        } else if (strncmp(p, "scaleObject", 11) == 0 || strncmp(p, "scaleLuaSprite", 14) == 0) {
-            char args[256] = {0};
-            ArgsOf(p, args, sizeof(args));
-            const char* a = args;
-            char tag[64] = {0};
-            float sx = 1, sy = 1;
-            if (parseQuoted(&a, tag, sizeof(tag)) && parseFloat(&a, &sx)) {
-                if (!parseFloat(&a, &sy)) sy = sx;
-                int mi = FindTag(maps, mapCount, tag);
-                int idx = (mi >= 0) ? maps[mi].idx : -1;
-                if (idx < 0) {
-                    if (count >= cap || count >= STAGE_MAX_SPRITES) { p++; continue; }
-                    idx = count++;
-                    memset(out + idx, 0, sizeof(*out));
-                    out[idx].scrollX = 1.0f; out[idx].scrollY = 1.0f;
-                    out[idx].scaleX = 1.0f; out[idx].scaleY = 1.0f;
-                    if (mi >= 0) maps[mi].idx = idx;
-                    else if (mapCount < STAGE_MAX_SPRITES) {
-                        strncpy(maps[mapCount].tag, tag, 63);
-                        maps[mapCount].idx = idx;
-                        mapCount++;
-                    }
-                }
-                out[idx].scaleX = sx; out[idx].scaleY = sy;
-            }
-        } else if (strncmp(p, "addGlitchEffect", 15) == 0) {
-            glitch++;
-        } else if (strncmp(p, "onUpdate", 8) == 0 || strncmp(p, "setProperty", 11) == 0) {
-            anim++;
+            while (*p && *p != '\n') p++;
+            continue;
         }
+
+        // 2. makeAnimatedLuaSprite TEM QUE VIR ANTES de makeLuaSprite
+        if (strncmp(p, "makeAnimatedLuaSprite", 21) == 0) {
+            char args[512] = {0}; ArgsOf(p, args, sizeof(args));
+            const char* a = args; char tag[64]={0}, img[128]={0}; float x=0,y=0;
+            if (parseQuoted(&a, tag, sizeof(tag)) && parseQuoted(&a, img, sizeof(img)) && parseFloat(&a, &x) && parseFloat(&a, &y)) {
+                int mi = FindTag(maps, mapCount, tag);
+                int idx = (mi >= 0 && maps[mi].idx >= 0) ? maps[mi].idx : -1;
+                if (idx < 0) {
+                    if (count >= cap || count >= STAGE_MAX_SPRITES) { p+=21; continue; }
+                    idx = count++; memset(out+idx,0,sizeof(*out));
+                    out[idx].scrollX=1; out[idx].scrollY=1; out[idx].scaleX=1; out[idx].scaleY=1;
+                    if (mi >= 0) maps[mi].idx = idx; else if(mapCount < STAGE_MAX_SPRITES){ strncpy(maps[mapCount].tag,tag,63); maps[mapCount].idx=idx; mapCount++; }
+                }
+                strncpy(out[idx].image, img, 127); out[idx].x=x; out[idx].y=y;
+            }
+            p+=21; continue;
+        }
+        if (strncmp(p, "makeLuaSprite", 13) == 0) {
+            char args[512] = {0}; ArgsOf(p, args, sizeof(args));
+            const char* a = args; char tag[64]={0}, img[128]={0}; float x=0,y=0;
+            if (parseQuoted(&a, tag, sizeof(tag)) && parseQuoted(&a, img, sizeof(img)) && parseFloat(&a, &x) && parseFloat(&a, &y)) {
+                int mi = FindTag(maps, mapCount, tag);
+                int idx = (mi >= 0 && maps[mi].idx >= 0) ? maps[mi].idx : -1;
+                if (idx < 0) {
+                    if (count >= cap || count >= STAGE_MAX_SPRITES) { p+=13; continue; }
+                    idx = count++; memset(out+idx,0,sizeof(*out));
+                    out[idx].scrollX=1; out[idx].scrollY=1; out[idx].scaleX=1; out[idx].scaleY=1;
+                    if (mi >= 0) maps[mi].idx = idx; else if(mapCount < STAGE_MAX_SPRITES){ strncpy(maps[mapCount].tag,tag,63); maps[mapCount].idx=idx; mapCount++; }
+                }
+                strncpy(out[idx].image, img, 127); out[idx].x=x; out[idx].y=y;
+            }
+            p+=13; continue;
+        }
+        if (strncmp(p, "makeGraphic", 11) == 0) {
+            char args[512]={0}; ArgsOf(p, args, sizeof(args));
+            const char* a=args; char tag[64]={0}; float w=0,h=0;
+            if(parseQuoted(&a,tag,sizeof(tag)) && parseFloat(&a,&w) && parseFloat(&a,&h)){
+                int mi=FindTag(maps,mapCount,tag);
+                int idx=(mi>=0&&maps[mi].idx>=0)?maps[mi].idx:-1;
+                if(idx<0){
+                    if(count>=cap||count>=STAGE_MAX_SPRITES){p+=11;continue;}
+                    idx=count++; memset(out+idx,0,sizeof(*out));
+                    out[idx].scrollX=1; out[idx].scrollY=1; out[idx].scaleX=1; out[idx].scaleY=1;
+                    if(mi>=0)maps[mi].idx=idx; else if(mapCount<STAGE_MAX_SPRITES){strncpy(maps[mapCount].tag,tag,63);maps[mapCount].idx=idx;mapCount++;}
+                }
+                isGraphic[idx]=1; // não filtra no final
+            }
+            p+=11; continue;
+        }
+
+        if (strncmp(p, "setLuaSpriteScrollFactor", 24) == 0 || strncmp(p, "setScrollFactor", 15) == 0) {
+            int adv = (p[3]=='L') ? 24 : 15;
+            char args[256]={0}; ArgsOf(p, args, sizeof(args));
+            const char* a=args; char tag[64]={0}; float sx=1,sy=1;
+            if(parseQuoted(&a,tag,sizeof(tag)) && parseFloat(&a,&sx)){
+                if(!parseFloat(&a,&sy)) sy=sx;
+                int mi=FindTag(maps,mapCount,tag);
+                int idx=(mi>=0)?maps[mi].idx:-1;
+                if(idx<0){
+                    if(count>=cap||count>=STAGE_MAX_SPRITES){p+=adv;continue;}
+                    idx=count++; memset(out+idx,0,sizeof(*out));
+                    out[idx].scrollX=1; out[idx].scrollY=1; out[idx].scaleX=1; out[idx].scaleY=1;
+                    if(mi>=0)maps[mi].idx=idx; else if(mapCount<STAGE_MAX_SPRITES){strncpy(maps[mapCount].tag,tag,63);maps[mapCount].idx=idx;mapCount++;}
+                }
+                out[idx].scrollX=sx; out[idx].scrollY=sy;
+            }
+            p+=adv; continue;
+        }
+        if (strncmp(p, "addLuaSprite", 12) == 0) {
+            char args[256]={0}; ArgsOf(p, args, sizeof(args));
+            const char* a=args; char tag[64]={0};
+            if(parseQuoted(&a,tag,sizeof(tag))){
+                int mi=FindTag(maps,mapCount,tag);
+                int idx=(mi>=0)?maps[mi].idx:-1;
+                if(idx<0){
+                    if(count>=cap||count>=STAGE_MAX_SPRITES){p+=12;continue;}
+                    idx=count++; memset(out+idx,0,sizeof(*out));
+                    out[idx].scrollX=1; out[idx].scrollY=1; out[idx].scaleX=1; out[idx].scaleY=1;
+                    if(mi>=0)maps[mi].idx=idx; else if(mapCount<STAGE_MAX_SPRITES){strncpy(maps[mapCount].tag,tag,63);maps[mapCount].idx=idx;mapCount++;}
+                }
+                // CORRIGIDO: não usa mais strstr("true") solto, parseia o 2º arg
+                const char* rest = a;
+                while(*rest && isspace((unsigned char)*rest)) rest++;
+                // aceita true/false com ou sem aspas
+                char val[16]={0}; int vi=0;
+                while(*rest && vi<15 && isalpha((unsigned char)*rest)) val[vi++]= (char)tolower((unsigned char)*rest++);
+                out[idx].front = (strcmp(val,"true")==0) ? 1 : 0;
+            }
+            p+=12; continue;
+        }
+        if (strncmp(p, "scaleObject", 11) == 0 || strncmp(p, "scaleLuaSprite", 14) == 0) {
+            int adv=(p[5]=='O')?11:14;
+            char args[256]={0}; ArgsOf(p, args, sizeof(args));
+            const char* a=args; char tag[64]={0}; float sx=1,sy=1;
+            if(parseQuoted(&a,tag,sizeof(tag)) && parseFloat(&a,&sx)){
+                if(!parseFloat(&a,&sy)) sy=sx;
+                int mi=FindTag(maps,mapCount,tag);
+                int idx=(mi>=0)?maps[mi].idx:-1;
+                if(idx<0){
+                    if(count>=cap||count>=STAGE_MAX_SPRITES){p+=adv;continue;}
+                    idx=count++; memset(out+idx,0,sizeof(*out));
+                    out[idx].scrollX=1; out[idx].scrollY=1; out[idx].scaleX=1; out[idx].scaleY=1;
+                    if(mi>=0)maps[mi].idx=idx; else if(mapCount<STAGE_MAX_SPRITES){strncpy(maps[mapCount].tag,tag,63);maps[mapCount].idx=idx;mapCount++;}
+                }
+                out[idx].scaleX=sx; out[idx].scaleY=sy;
+            }
+            p+=adv; continue;
+        }
+        if (strncmp(p, "addGlitchEffect", 15) == 0) { glitch++; p+=15; continue; }
+        if (strncmp(p, "onUpdate", 8) == 0 || strncmp(p, "setProperty", 11) == 0) { anim++; p+= (p[0]=='o'?8:11); continue; }
         p++;
     }
-    // tira entradas sem imagem (citadas mas nunca criadas com makeLuaSprite)
+    
     int w = 0;
     for (int i = 0; i < count; i++) {
-        if (out[i].image[0] == 0) continue;
-        if (w != i) out[w] = out[i];
+        if (out[i].image[0] == 0 && !isGraphic[i]) continue;
+        if (w != i) out[w] = out[i], isGraphic[w]=isGraphic[i];
         w++;
     }
     if (ignoredGlitch) *ignoredGlitch = glitch;

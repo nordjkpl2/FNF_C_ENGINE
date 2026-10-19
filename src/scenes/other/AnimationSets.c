@@ -57,24 +57,6 @@ RayAnimationHandler AnimationSet_LoadAnimations(const char* animset, Texture2D i
     };
 }
 
-float AnimationSet_AnimationLength(const RayAnimationHandler* animations, int animIndex) {
-    if(animIndex < 0 || animIndex >= animations->animationCount)
-        return 1.0f; // indice invalido: nunca travar timer (ex. deadTime da morte)
-    const RayAnimation* animation = animations->animations + animIndex;
-    return (1.0f / animation->fps) * animation->frameCount;
-}
-
-void AnimationSet_SetAnimationData(RayAnimationHandler* animations, int animationIndex, int fps, char looped) {
-    RayAnimation* animation = animations->animations + animationIndex;
-    animation->fps = fps;
-    animation->looped = looped;
-}
-
-void AnimationSet_SetAnimationOffset(RayAnimationHandler* animations, int animationIndex, Vector2 offset) {
-    RayAnimation* animation = animations->animations + animationIndex;
-    animation->animationOffset = offset;
-}
-
 int AnimationSet_FindAnimation(const RayAnimationHandler* animations, const char* animationName) {
     for(int i = 0; i < animations->animationCount; i++) {
         const RayAnimation* anim = animations->animations + i;
