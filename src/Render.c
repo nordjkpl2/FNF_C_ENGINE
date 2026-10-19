@@ -1,7 +1,7 @@
 /* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 #include "Render.h"
 #include "Game.h"
-/* //* Definições de Animação e Renderização, como padrão atualização etc*/
+/* //* Definições de Animação e Renderização, como padrão atualização etc, OUTD day18/10/2026*/
 
 static const Vector2 VEC_ZERO = {0,0};
 static Camera2D* s_target = NULL;

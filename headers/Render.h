@@ -56,6 +56,7 @@ typedef struct {
 typedef struct {
     Texture2D texture;
     RayAnimation* animations;
+    Frame* frameArena; // <--- ADD arena contígua
     int animationCount;
 } RayAnimationHandler;
 

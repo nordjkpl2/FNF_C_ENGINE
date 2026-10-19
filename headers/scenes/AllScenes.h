@@ -1,11 +1,10 @@
 /* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 #pragma once
-#ifndef ALLSCENES_H
-#define ALLSCENES_H
-/* // ! includes */
+
 #include "GameData.h"
 #include "BeatManager.h"
 #include "scenes/Week.h"
+
 /* // * code */
 void PlayState_SetScene(void);
 void PlayState_SetSongDir(const char* dir);
@@ -25,15 +24,15 @@ void OptionsMenu_SetScene(void);
 void Freeplay_SetScene(void); 
 void MenuState_SetScene(void); 
 void TitleState_SetScene(void);
-/* // ? Extern */ /* Font of Game, Array Vetor (list of same things btw)*/
+
 extern Vector2 VECTOR_ZERO;
 extern Font mainFont;  
-/* // ! ALL SCENES OF GAME HERE */
+
 void AllScenes_StartGame(void);
 void AllScenes_DestroyGame(void);
-/* // TODO: cache */
+
 RayAnimationHandler Cache_GetNoteAnimations(void);
 RayAnimationHandler Cache_GetNoteSkin(const char* skinName, const char* songDir);
 RayAnimationHandler* Cache_GetDefaultNoteSkinPtr(void);
 void Cache_UnloadCustomNoteSkins(void);
-#endif
+
