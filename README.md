@@ -1,4 +1,4 @@
-# FNF — C engine
+# 🌟 Friday Night Funkin´ — C engine
 
 A performance-focused Friday Night Funkin' engine written in pure C (C23) on top of raylib
 
