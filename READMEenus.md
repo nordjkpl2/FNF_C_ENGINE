@@ -21,7 +21,7 @@ src/scenes/     # Title, Menu, Story, Freeplay, PlayState, Options,
                 # Loading, Modding, ChartEditor, AllScenes
 src/scenes/other/ # Song, SongList, Week, Stage, Note, Character,
                 # BeatManager, AnimationSets, ModImport
-lib/            # vendored cJSON and libs used
+lib/            # libs in use
 assets/         # songs, weeks, stages, characters, sounds, fonts, save.data
 assets/mods/    # mods (songs, stages, images/icons)
 ```
