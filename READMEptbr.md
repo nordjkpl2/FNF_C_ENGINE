@@ -1,8 +1,4 @@
-# 🌟 Friday Night Funkin' — C Engine
-
 Desempenho
-
-> Todos os recursos (assets) de Friday Night Funkin' pertencem aos seus respectivos proprietários.
 
 # 1 Dev
 
