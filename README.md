@@ -7,4 +7,4 @@ A performance-focused Friday Night Funkin' engine written in pure C (C23) on top
 Raylib v5.5 / Raymath v2.0 / 2020 yyjson / 2014 yxml / OpenGl 3.30
 ```
 
-> Not a commercial product. All Friday Night Funkin' assets belong to their respective owners.
+> All Friday Night Funkin' assets belong to their respective owners.
