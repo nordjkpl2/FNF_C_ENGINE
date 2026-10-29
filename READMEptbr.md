@@ -21,7 +21,7 @@ src/scenes/     # Titúlo, Menu, Historia, Aba de Freeplay, PlayState (Estado de
                 # Loading, Modding, ChartEditor, AllScenes (Todas as Cenas)
 src/scenes/other/ # Song (Música), SongList (Lista de Músicas), Week (Suporte a Aba de Week Do Friday Night Funkin'), Stage (Background), Note (Notas), Character (Personagens),
 # BeatManager (Part e Coisas a ver com a música), AnimationSets (Sets de Animação), ModImport (Tentando fazer um importador de Mods)
-lib/            # cJSON e bibliotecas externas incluídas
+lib/            # bibliotecas em uso
 assets/         # músicas, semanas, cenários, personagens, sons, fontes, save.data
 assets/mods/    # mods (músicas, cenários, imagens/ícones)
 ```
