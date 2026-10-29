@@ -2,7 +2,7 @@
 
 Desempenho
 
-> Não é um produto comercial. Todos os recursos (assets) de Friday Night Funkin' pertencem aos seus respectivos proprietários.
+> Todos os recursos (assets) de Friday Night Funkin' pertencem aos seus respectivos proprietários.
 
 # 1 Dev
 
