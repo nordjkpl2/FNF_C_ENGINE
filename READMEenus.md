@@ -1,6 +1,6 @@
-# Friday Night Funkin' — C Engine
+# 🌟 Friday Night Funkin' — C Engine
 
-A performance-focused engine for Friday Night Funkin' written in pure (C23) using the raylib library. It features chart support, mod support via files, a built-in native chart editor, and (likely) support for all mods—though I'm not certain about that last part yet
+Performance
 
 > Not a commercial product. All Friday Night Funkin' assets belong to their respective owners.
 
@@ -30,10 +30,6 @@ assets/         # songs, weeks, stages, characters, sounds, fonts, save.data
 assets/mods/    # mods (songs, stages, images/icons)
 ```
 
-```text
-Raylib v5.5 / Raymath v2.0 / 20022017 cJson / OpenGl 3.30
-```
-
 ## 1.1 Development Roadmap
 
 **Status:** `v0.3 / v1.0 (30%)`
@@ -42,7 +38,7 @@ Raylib v5.5 / Raymath v2.0 / 20022017 cJson / OpenGl 3.30
 - [x] v0.1 — Basis
 - [x] v0.2 — Basis functions
 - [x] v0.3 — Music Editor and Additional Things its Basic (current)
-- [ ] v0.4 — Additional features (WeekEditor, pending)
+- [ ] v0.4 — Additional features (WeekEditor, better grafics, pending)
 - [ ] v0.5 — Tests and tuning
 - [ ] v0.9 — Game Polish and Bug Testing
 - [ ] v1.0 — Release
