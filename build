@@ -10,12 +10,12 @@ build (fnf c engine (c) 2026 nordjkpl and as name Mawh/na Corporation)
         >>>Global
 
 1. Build
-    Código de Compilação Comum Atual
-gcc main.c $(find src -name "*.c") $(find lib -name "*.c") -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -flto -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O2 -s -DNDEBUG -fomit-frame-pointer -fno-math-errno -Ofast
+    Comum
+gcc main.c $(find src -name "*.c") $(find lib -name "*.c") -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -flto -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O2 -s -DNDEBUG -fomit-frame-pointer -fno-math-errno -finline-small-functions -fmerge-all-constants
     Sem Fito
-gcc main.c $(find src -name "*.c") $(find lib -name "*.c") -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O2 -s -DNDEBUG -fomit-frame-pointer -fno-math-errno -Ofast
+gcc main.c $(find src -name "*.c") $(find lib -name "*.c") -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O2 -s -DNDEBUG -fomit-frame-pointer -fno-math-errno -finline-small-functions -fmerge-all-constants
     Sem w64devkit
-gcc main.c src/*.c lib/*.c -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O2 -s -DNDEBUG -fomit-frame-pointer -fno-math-errno -Ofast
+gcc main.c src/*.c lib/*.c -o FNF_C_ENGINE.exe -I./headers -I./src -I./lib -L./lib -lraylibdll -lopengl32 -lgdi32 -lwinmm -std=c23 -Os -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,-O2 -s -DNDEBUG -fomit-frame-pointer -fno-math-errno -finline-small-functions -fmerge-all-constants
 2.  Map
     &   Renderização    &
     ### Scene.c -> Cria e Destroi Cenas de Forma Gênerica, Parte do Código pras Cenas
