@@ -1,8 +1,4 @@
-# 🌟 Friday Night Funkin' — C Engine
-
-Performance
-
-> Not a commercial product. All Friday Night Funkin' assets belong to their respective owners.
+> Performance
 
 # 1 Dev
 
