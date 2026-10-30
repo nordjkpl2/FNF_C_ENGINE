@@ -200,7 +200,7 @@ static int Note_CompareChronological(const void* a, const void* b) {
 static float Scroll_StrumY(char mustHit) {
     (void)mustHit;
     if (game_options_scroll == 2) return 20.0f;
-    if (game_options_scroll == 1) return 670.0f;
+    if (game_options_scroll == 1) return 600.0f;
     return 50.0f;
 }
 
