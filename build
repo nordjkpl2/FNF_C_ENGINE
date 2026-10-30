@@ -76,3 +76,9 @@ static double YYJSON_GetNum(yyjson_val* val, double default_val) {
     if (yyjson_is_uint(val)) return (double)yyjson_get_uint(val);
     return yyjson_get_real(val);
 }
+
+// ideias
+    fazer uma textura de bulk pra mods com muitasmuitasmuitasmuitas notas invez de carregar muitas notas pra conseguir rodar charts maiores
+    em coisas q nao aguentam tipo um celular
+
+    ai invez de tocar preto 200 notas toca uma textura de bulk

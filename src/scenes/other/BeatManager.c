@@ -1,65 +1,116 @@
-/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl, outd day19 of10 2026*/
-#include "scenes/BeatManager.h" 
+/* Friday Night Funkin' C Engine (c) 2026 nordjkpl */
+#include "scenes/BeatManager.h"
 #include <math.h>
+#include <stddef.h>
 
-void BeatManager_New(BeatManager* restrict mng) {
-    mng->beat = 0;
-    mng->step = 0;
-    mng->bpm = 100.0f; // nunca 0 para evitar div/0
-    mng->stepCrochet = 60.0 / 100.0 / 4.0;
-    mng->music = NULL;
-    mng->time = 0;
-    mng->btime = 0;
-    mng->loop = 0;
+#define BEATMANAGER_DEFAULT_BPM 100.0f
+#define BEATMANAGER_MIN_BPM 1.0f
+#define BEATMANAGER_MAX_STEPS_PER_UPDATE 32
+#define BEATMANAGER_LOOP_EPSILON 0.02f
+
+static inline char BeatManager_IsValidBpm(float bpm) {
+    return isfinite(bpm) && bpm >= BEATMANAGER_MIN_BPM;
 }
 
-void BeatManager_Reset(BeatManager* restrict mng) {
-    mng->beat = 0;
-    mng->step = 0;
-    mng->time = 0;
-    mng->btime = 0;
-    if (mng->music) SeekMusicStream(*mng->music, 0.0f);
+static inline double BeatManager_Crochet(float bpm) {
+    /* 60 segundos / BPM / 4 steps = 15 / BPM. */
+    return 15.0 / (double)bpm;
 }
 
-// HOT PATH - roda 60x por segundo
-void BeatManager_Update(BeatManager* restrict manager, void (*onStepHit)(void), void (*onBeatHit)(void)) { 
-    if (manager->music == NULL || manager->bpm < 1.0f) return;
-    if (!IsMusicStreamPlaying(*manager->music)) return;
+void BeatManager_New(BeatManager* restrict manager) {
+    if(manager == NULL)
+        return;
 
-    const double audioTime = (double)GetMusicTimePlayed(*manager->music);
-    
-    // Resync único por frame (fora do while) = 1 branch vs N branches
-    // Psych faz isso: se drift > 20ms, teleporta
-    if (fabs(audioTime - manager->time) > 0.02)
-        manager->time = audioTime;
-    else
-        manager->time = audioTime; // fonte única = audioTime. DeltaTime só para interpolação visual se precisar
+    manager->beat = 0;
+    manager->step = 0;
+    manager->bpm = BEATMANAGER_DEFAULT_BPM;
+    manager->stepCrochet = BeatManager_Crochet(BEATMANAGER_DEFAULT_BPM);
+    manager->music = NULL;
+    manager->time = 0.0;
+    manager->btime = 0.0;
+    manager->loop = 0;
+}
 
-    if (manager->loop) {
-        float len = GetMusicTimeLength(*manager->music);
-        if (audioTime >= len - 0.02f) {
+void BeatManager_Reset(BeatManager* restrict manager) {
+    if(manager == NULL)
+        return;
+
+    manager->beat = 0;
+    manager->step = 0;
+    manager->time = 0.0;
+    manager->btime = 0.0;
+
+    if(manager->music != NULL)
+        SeekMusicStream(*manager->music, 0.0f);
+}
+
+/* Executado uma vez por frame. O relógio da música é a fonte de tempo. */
+void BeatManager_Update(
+    BeatManager* restrict manager,
+    void (*onStepHit)(void),
+    void (*onBeatHit)(void)
+) {
+    if(manager == NULL || manager->music == NULL)
+        return;
+
+    if(!BeatManager_IsValidBpm(manager->bpm))
+        return;
+
+    Music* music = manager->music;
+    if(!IsMusicStreamPlaying(*music))
+        return;
+
+    const double audioTime = (double)GetMusicTimePlayed(*music);
+    if(!isfinite(audioTime) || audioTime < 0.0)
+        return;
+
+    /* Mantém o tempo público sincronizado com o áudio; o if anterior era redundante. */
+    manager->time = audioTime;
+
+    if(manager->loop) {
+        const float musicLength = GetMusicTimeLength(*music);
+        if(isfinite(musicLength) && musicLength > 0.0f &&
+           audioTime >= (double)musicLength - BEATMANAGER_LOOP_EPSILON) {
             BeatManager_Reset(manager);
             return;
         }
     }
 
-    const double crochet = manager->stepCrochet;
-    // Trava de segurança: se lagar, não roda 500 steps de uma vez
+    /* BPM pode mudar em onStepHit quando uma seção nova começa. */
+    float activeBpm = manager->bpm;
+    double crochet = BeatManager_Crochet(activeBpm);
+    manager->stepCrochet = crochet;
+
     int stepsThisFrame = 0;
-    while (audioTime - manager->btime >= crochet && stepsThisFrame < 32) { 
+    while((audioTime - manager->btime) >= crochet &&
+          stepsThisFrame < BEATMANAGER_MAX_STEPS_PER_UPDATE) {
         manager->btime += crochet;
         manager->step++;
         stepsThisFrame++;
 
-        if (onStepHit) onStepHit();
+        if(onStepHit != NULL)
+            onStepHit();
 
-        if ((manager->step & 3) == 0) { // step % 4 == 0 mas sem divisão
+        if((manager->step & 3) == 0) {
             manager->beat++;
-            if (onBeatHit) onBeatHit();
+            if(onBeatHit != NULL)
+                onBeatHit();
+        }
+
+        /* Recalcula apenas se algum callback alterou o BPM. */
+        if(manager->bpm != activeBpm) {
+            if(!BeatManager_IsValidBpm(manager->bpm))
+                break;
+
+            activeBpm = manager->bpm;
+            crochet = BeatManager_Crochet(activeBpm);
+            manager->stepCrochet = crochet;
         }
     }
-    // Se ficou muito atrás (lag spike), teleporta btime para não ficar em loop infinito
-    if (stepsThisFrame == 32) {
+
+    /* Limita o custo de recuperação depois de travamentos longos. */
+    if(stepsThisFrame == BEATMANAGER_MAX_STEPS_PER_UPDATE &&
+       (audioTime - manager->btime) >= crochet) {
         manager->btime = audioTime;
     }
 }
