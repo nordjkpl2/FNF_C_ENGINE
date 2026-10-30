@@ -17,6 +17,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -271,6 +272,45 @@ static int MI_IsModsRoot(const char *root)
         if (c != (unsigned char)"assets"[i]) return 0;
     }
     return 1;
+}
+
+/* A pasta selecionada pode ser um mod individual ou a pasta-container "mods".
+ * Quando ela ja contem a estrutura do jogo, ela propria e o mod (assets/mods).
+ */
+static int MI_HasModLayout(const char *root)
+{
+    static const char *const folders[] = {
+        "songs", "weeks", "stages", "characters", "images", "data"
+    };
+    char path[MI_PATH_MAX];
+    if (root == NULL || !DirectoryExists(root)) return 0;
+    for (size_t i = 0; i < sizeof(folders) / sizeof(folders[0]); ++i) {
+        if (MI_Join(path, sizeof(path), root, folders[i]) && DirectoryExists(path))
+            return 1;
+    }
+    return 0;
+}
+
+static int MI_IsNameMods(const char *name)
+{
+    return MI_CaseEqual(name, "mods");
+}
+
+static void MI_StatsAdd(ModImportStats *dst, const ModImportStats *src)
+{
+    if (dst == NULL || src == NULL) return;
+    dst->songs += src->songs;
+    dst->charts += src->charts;
+    dst->weeks += src->weeks;
+    dst->stages += src->stages;
+    dst->images += src->images;
+    dst->characters += src->characters;
+    dst->animsets += src->animsets;
+    dst->icons += src->icons;
+    if (src->bytes > 0 && dst->bytes <= LONG_MAX - src->bytes)
+        dst->bytes += src->bytes;
+    dst->skippedEvents += src->skippedEvents;
+    dst->skippedLua += src->skippedLua;
 }
 
 static void MI_GetStem(const char *path, char *out, size_t outSize)
@@ -1145,37 +1185,77 @@ static void MI_CopyVoiceFiles(const char *sourceSong, const char *destinationSon
 static int MI_CopySongFolder(const char *sourceSong, const char *destinationSong,
                              const char *sourceData, MI_ImportContext *context)
 {
-    static const char *instrumentals[] = {"Inst.ogg", "Inst.mp3", "Inst.wav"};
+    static const char *const instrumentals[] = {"Inst.ogg", "Inst.mp3", "Inst.wav"};
     char sourceFile[MI_PATH_MAX];
     char destinationFile[MI_PATH_MAX];
+    char chartDir[MI_PATH_MAX];
     int hasInst = 0;
     int charts = 0;
-    char chartDir[MI_PATH_MAX];
 
     if (!MI_EnsureDirectory(destinationSong)) return 0;
 
-    for (size_t i = 0; i < sizeof(instrumentals) / sizeof(instrumentals[0]); ++i) {
-        if (!MI_Join(sourceFile, sizeof(sourceFile), sourceSong, instrumentals[i])) continue;
-        if (!FileExists(sourceFile)) continue;
-        if (!MI_Join(destinationFile, sizeof(destinationFile), destinationSong, instrumentals[i])) continue;
-        if (MI_CopyFile(sourceFile, destinationFile, &context->stats->bytes)) {
-            hasInst = 1;
-            break;
+    /* Audio e opcional para importar charts: mods podem conter apenas dados. */
+    if (sourceSong != NULL && DirectoryExists(sourceSong)) {
+        for (size_t i = 0; i < sizeof(instrumentals) / sizeof(instrumentals[0]); ++i) {
+            if (!MI_Join(sourceFile, sizeof(sourceFile), sourceSong, instrumentals[i])) continue;
+            if (!FileExists(sourceFile)) continue;
+            if (!MI_Join(destinationFile, sizeof(destinationFile), destinationSong, instrumentals[i])) continue;
+            if (MI_CopyFile(sourceFile, destinationFile, &context->stats->bytes)) {
+                hasInst = 1;
+                break;
+            }
         }
+        MI_CopyVoiceFiles(sourceSong, destinationSong, context);
     }
-    if (!hasInst) return 0;
 
-    MI_CopyVoiceFiles(sourceSong, destinationSong, context);
-
-    if (sourceData != NULL && sourceData[0] != '\0') {
+    /* O formato Psych guarda os charts em data/<song>; o destino do engine
+     * padroniza tudo em songs/<song>/<chart>.json. */
+    if (sourceData != NULL && sourceData[0] != '\0' && DirectoryExists(sourceData))
         (void)MI_CopyChartsFromDirectory(sourceData, destinationSong, context, &charts);
+
+    if (sourceSong != NULL && DirectoryExists(sourceSong)) {
+        (void)MI_CopyChartsFromDirectory(sourceSong, destinationSong, context, &charts);
+        if (MI_Join(chartDir, sizeof(chartDir), sourceSong, "charts") && DirectoryExists(chartDir))
+            (void)MI_CopyChartsFromDirectory(chartDir, destinationSong, context, &charts);
     }
-    (void)MI_CopyChartsFromDirectory(sourceSong, destinationSong, context, &charts);
-    if (MI_Join(chartDir, sizeof(chartDir), sourceSong, "charts") && DirectoryExists(chartDir))
-        (void)MI_CopyChartsFromDirectory(chartDir, destinationSong, context, &charts);
 
     if (charts > 0) ++context->stats->songs;
-    return charts > 0;
+    return (hasInst || charts > 0);
+}
+
+static void MI_ImportLooseSongCharts(const char *sourceSongs, const char *destinationSongs,
+                                     MI_ImportContext *context)
+{
+    FilePathList entries;
+    if (!DirectoryExists(sourceSongs) || !MI_EnsureDirectory(destinationSongs)) return;
+    entries = MI_ListEntries(sourceSongs);
+    for (unsigned i = 0; i < entries.count; ++i) {
+        const char *base = MI_BaseName(entries.paths[i]);
+        char songName[MI_NAME_MAX];
+        char destinationSong[MI_PATH_MAX];
+        if (MI_IsDirectoryPath(entries.paths[i]) || !MI_EndsWithI(base, ".json")) continue;
+        if (MI_CaseEqual(base, "events.json")) {
+            ++context->stats->skippedEvents;
+            continue;
+        }
+        MI_GetStem(base, songName, sizeof(songName));
+        if (!MI_IsSafeComponent(songName) || songName[0] == '\0' ||
+            !MI_Join(destinationSong, sizeof(destinationSong), destinationSongs, songName)) continue;
+        (void)MI_EnsureDirectory(destinationSong);
+        {
+            char destination[MI_PATH_MAX];
+            if (MI_Join(destination, sizeof(destination), destinationSong, base)) {
+                if (FileExists(destination)) {
+                    (void)MI_CopyFile(entries.paths[i], destination, &context->stats->bytes);
+                } else if (MI_CopyFile(entries.paths[i], destination, &context->stats->bytes)) {
+                    ++context->stats->charts;
+                    ++context->stats->songs;
+                }
+                MI_ParseChartActors(entries.paths[i], &context->iconNames);
+            }
+        }
+    }
+    UnloadDirectoryFiles(entries);
 }
 
 static int MI_ImportSongs(const char *srcMod, const char *dstMod,
@@ -1185,34 +1265,55 @@ static int MI_ImportSongs(const char *srcMod, const char *dstMod,
     char sourceData[MI_PATH_MAX];
     char destinationSongs[MI_PATH_MAX];
     FilePathList songDirs;
+    FilePathList dataDirs;
+    int haveSongs;
+    int haveData;
+
     if (!MI_Join(sourceSongs, sizeof(sourceSongs), srcMod, "songs") ||
         !MI_Join(sourceData, sizeof(sourceData), srcMod, "data") ||
         !MI_Join(destinationSongs, sizeof(destinationSongs), dstMod, "songs")) return 0;
-    if (!DirectoryExists(sourceSongs)) return 1;
+
+    haveSongs = DirectoryExists(sourceSongs);
+    haveData = DirectoryExists(sourceData);
+    if (!haveSongs && !haveData) return 1;
     if (!MI_EnsureDirectory(destinationSongs)) return 0;
 
-    songDirs = MI_ListDirectories(sourceSongs);
-    for (unsigned i = 0; i < songDirs.count; ++i) {
-        char destinationSong[MI_PATH_MAX];
-        char sourceChart[MI_PATH_MAX];
-        const char *songName = MI_BaseName(songDirs.paths[i]);
-        if (!MI_IsSafeComponent(songName) ||
-            !MI_Join(destinationSong, sizeof(destinationSong), destinationSongs, songName)) continue;
+    if (haveSongs) {
+        songDirs = MI_ListDirectories(sourceSongs);
+        for (unsigned i = 0; i < songDirs.count; ++i) {
+            char destinationSong[MI_PATH_MAX];
+            char sourceChart[MI_PATH_MAX];
+            const char *songName = MI_BaseName(songDirs.paths[i]);
+            if (!MI_IsSafeComponent(songName) ||
+                !MI_Join(destinationSong, sizeof(destinationSong), destinationSongs, songName)) continue;
 
-        sourceChart[0] = '\0';
-        if (MI_Join(sourceChart, sizeof(sourceChart), sourceData, songName) &&
-            !DirectoryExists(sourceChart)) sourceChart[0] = '\0';
+            sourceChart[0] = '\0';
+            if (haveData && MI_Join(sourceChart, sizeof(sourceChart), sourceData, songName) &&
+                !DirectoryExists(sourceChart)) sourceChart[0] = '\0';
 
-        if (sourceChart[0] != '\0') {
-            (void)MI_CopySongFolder(songDirs.paths[i], destinationSong, sourceChart, context);
-        } else {
-            (void)MI_CopySongFolder(songDirs.paths[i], destinationSong, NULL, context);
+            (void)MI_CopySongFolder(songDirs.paths[i], destinationSong,
+                                    sourceChart[0] ? sourceChart : NULL, context);
         }
+        UnloadDirectoryFiles(songDirs);
+        MI_ImportLooseSongCharts(sourceSongs, destinationSongs, context);
     }
-    UnloadDirectoryFiles(songDirs);
 
-    /* Alguns mods colocam charts em songs/<nome>/charts; os arquivos diretos
-     * ja foram tratados em MI_CopySongFolder. */
+    /* Charts podem existir mesmo quando o mod nao traz a pasta songs/<nome>.
+     * Importa os que ainda nao foram associados acima, mantendo-os em songs/. */
+    if (haveData) {
+        dataDirs = MI_ListDirectories(sourceData);
+        for (unsigned i = 0; i < dataDirs.count; ++i) {
+            char matchingSong[MI_PATH_MAX];
+            char destinationSong[MI_PATH_MAX];
+            const char *songName = MI_BaseName(dataDirs.paths[i]);
+            if (MI_CaseEqual(songName, "stages") || !MI_IsSafeComponent(songName) ||
+                !MI_Join(destinationSong, sizeof(destinationSong), destinationSongs, songName)) continue;
+            if (haveSongs && MI_Join(matchingSong, sizeof(matchingSong), sourceSongs, songName) &&
+                DirectoryExists(matchingSong)) continue;
+            (void)MI_CopySongFolder(NULL, destinationSong, dataDirs.paths[i], context);
+        }
+        UnloadDirectoryFiles(dataDirs);
+    }
     return 1;
 }
 
@@ -1293,13 +1394,13 @@ static int MI_ImportCharacters(const char *srcMod, const char *dstMod,
 /* API publica                                                               */
 /* ------------------------------------------------------------------------- */
 
-char ModImport_Run(const char *srcMod, const char *dstRoot, const char *modName,
-                   char *msg, size_t msgSize, ModImportStats *stats)
+static char MI_ImportSingle(const char *srcMod, const char *destModPath,
+                            const char *modName, char *msg, size_t msgSize,
+                            ModImportStats *stats)
 {
     ModImportStats localStats;
     MI_ImportContext context;
     char modNameSafe[64];
-    char destinationMod[MI_PATH_MAX];
     char sourceWeeks[MI_PATH_MAX];
     char destinationWeeks[MI_PATH_MAX];
     char sourceStages[MI_PATH_MAX];
@@ -1315,40 +1416,39 @@ char ModImport_Run(const char *srcMod, const char *dstRoot, const char *modName,
     if (stats != NULL) memset(stats, 0, sizeof(*stats));
     if (msg != NULL && msgSize > 0) msg[0] = '\0';
 
-    if (srcMod == NULL || dstRoot == NULL || modName == NULL ||
-        !DirectoryExists(srcMod) || !MI_IsModsRoot(dstRoot)) {
+    if (srcMod == NULL || destModPath == NULL || modName == NULL ||
+        !DirectoryExists(srcMod)) {
         if (msg != NULL && msgSize > 0)
-            (void)snprintf(msg, msgSize, "import: origem/raiz invalida (destino deve ser assets/mods)");
+            (void)snprintf(msg, msgSize, "import: origem/destino invalido");
         return 0;
     }
 
     MI_SanitizeModName(modNameSafe, sizeof(modNameSafe), modName);
-    if (!MI_Join(destinationMod, sizeof(destinationMod), dstRoot, modNameSafe) ||
-        !MI_EnsureDirectory(destinationMod)) {
+    if (!MI_EnsureDirectory(destModPath)) {
         if (msg != NULL && msgSize > 0)
-            (void)snprintf(msg, msgSize, "import: nao foi possivel criar %s", destinationMod);
+            (void)snprintf(msg, msgSize, "import: nao foi possivel criar %s", destModPath);
         return 0;
     }
 
     memset(&context, 0, sizeof(context));
     context.srcRoot = srcMod;
-    context.dstRoot = destinationMod;
+    context.dstRoot = destModPath;
     context.stats = &localStats;
 
     if (!MI_Join(sourceWeeks, sizeof(sourceWeeks), srcMod, "weeks") ||
-        !MI_Join(destinationWeeks, sizeof(destinationWeeks), destinationMod, "weeks") ||
+        !MI_Join(destinationWeeks, sizeof(destinationWeeks), destModPath, "weeks") ||
         !MI_Join(sourceStages, sizeof(sourceStages), srcMod, "stages") ||
-        !MI_Join(destinationStages, sizeof(destinationStages), destinationMod, "stages") ||
+        !MI_Join(destinationStages, sizeof(destinationStages), destModPath, "stages") ||
         !MI_Join(sourceDataStages, sizeof(sourceDataStages), srcMod, "data/stages") ||
-        !MI_Join(destinationDataStages, sizeof(destinationDataStages), destinationMod, "data/stages") ||
+        !MI_Join(destinationDataStages, sizeof(destinationDataStages), destModPath, "data/stages") ||
         !MI_Join(sourceImages, sizeof(sourceImages), srcMod, "images") ||
-        !MI_Join(destinationImages, sizeof(destinationImages), destinationMod, "images")) {
+        !MI_Join(destinationImages, sizeof(destinationImages), destModPath, "images")) {
         if (msg != NULL && msgSize > 0)
             (void)snprintf(msg, msgSize, "import: caminho excede o limite permitido");
         return 0;
     }
 
-    if (!MI_ImportSongs(srcMod, destinationMod, &context)) ok = 0;
+    if (!MI_ImportSongs(srcMod, destModPath, &context)) ok = 0;
 
     if (DirectoryExists(sourceWeeks) &&
         !MI_CopyWeeksRecursive(sourceWeeks, destinationWeeks, &context, 0)) ok = 0;
@@ -1363,7 +1463,7 @@ char ModImport_Run(const char *srcMod, const char *dstRoot, const char *modName,
         localStats.images += copiedImages;
     }
 
-    if (!MI_ImportCharacters(srcMod, destinationMod, &context)) ok = 0;
+    if (!MI_ImportCharacters(srcMod, destModPath, &context)) ok = 0;
     MI_CopyCollectedIcons(&context);
 
     if (stats != NULL) *stats = localStats;
@@ -1381,6 +1481,75 @@ char ModImport_Run(const char *srcMod, const char *dstRoot, const char *modName,
     return (char)(ok != 0);
 }
 
+char ModImport_Run(const char *srcMod, const char *dstRoot, const char *modName,
+                   char *msg, size_t msgSize, ModImportStats *stats)
+{
+    ModImportStats total;
+    char sourceIsMods;
+    char destination[MI_PATH_MAX];
+    memset(&total, 0, sizeof(total));
+    if (stats != NULL) memset(stats, 0, sizeof(*stats));
+    if (msg != NULL && msgSize > 0) msg[0] = '\0';
+
+    if (srcMod == NULL || dstRoot == NULL || modName == NULL ||
+        !DirectoryExists(srcMod) || !MI_IsModsRoot(dstRoot)) {
+        if (msg != NULL && msgSize > 0)
+            (void)snprintf(msg, msgSize, "import: origem/raiz invalida (destino deve ser assets/mods)");
+        return 0;
+    }
+
+    sourceIsMods = (char)(MI_IsNameMods(MI_BaseName(srcMod)) || MI_IsNameMods(modName));
+    if (!sourceIsMods) {
+        char safeName[64];
+        MI_SanitizeModName(safeName, sizeof(safeName), modName);
+        if (!MI_Join(destination, sizeof(destination), dstRoot, safeName)) return 0;
+        return MI_ImportSingle(srcMod, destination, safeName, msg, msgSize, stats);
+    }
+
+    /* A pasta chamada "mods" pode ser o proprio mod (com songs/weeks/etc.)
+     * ou um container com varios mods. Nunca cria assets/mods/mods. */
+    if (MI_HasModLayout(srcMod)) {
+        return MI_ImportSingle(srcMod, dstRoot, "mods", msg, msgSize, stats);
+    }
+
+    {
+        FilePathList children = MI_ListDirectories(srcMod);
+        int imported = 0;
+        int ok = 1;
+        for (unsigned i = 0; i < children.count; ++i) {
+            const char *childName = MI_BaseName(children.paths[i]);
+            char safeName[64];
+            ModImportStats childStats;
+            char childMsg[256];
+            if (!MI_IsSafeComponent(childName) || MI_IsNameMods(childName)) continue;
+            MI_SanitizeModName(safeName, sizeof(safeName), childName);
+            if (!MI_Join(destination, sizeof(destination), dstRoot, safeName)) {
+                ok = 0;
+                continue;
+            }
+            memset(&childStats, 0, sizeof(childStats));
+            if (MI_ImportSingle(children.paths[i], destination, safeName,
+                                childMsg, sizeof(childMsg), &childStats)) {
+                MI_StatsAdd(&total, &childStats);
+                ++imported;
+            } else if (childStats.charts || childStats.songs || childStats.weeks ||
+                       childStats.stages || childStats.images || childStats.characters) {
+                MI_StatsAdd(&total, &childStats);
+                ok = 0;
+            }
+        }
+        UnloadDirectoryFiles(children);
+        if (stats != NULL) *stats = total;
+        if (msg != NULL && msgSize > 0) {
+            (void)snprintf(msg, msgSize,
+                "import mods: %d mods, %d musicas, %d charts, %d weeks, %d stages, %d imagens (%ld KB)",
+                imported, total.songs, total.charts, total.weeks, total.stages,
+                total.images, total.bytes / 1024L);
+        }
+        return (char)(imported > 0 && ok);
+    }
+}
+
 char ModImport_ScanMods(const char *dstRoot, ModImportUsage *out)
 {
     ModImportUsage usage;
@@ -1389,23 +1558,35 @@ char ModImport_ScanMods(const char *dstRoot, ModImportUsage *out)
     if (out != NULL) *out = usage;
     if (!MI_IsModsRoot(dstRoot) || !DirectoryExists(dstRoot)) return 0;
 
-    mods = MI_ListDirectories(dstRoot);
-    for (unsigned i = 0; i < mods.count; ++i) {
+    if (MI_HasModLayout(dstRoot)) {
         char songsPath[MI_PATH_MAX];
         FilePathList songs;
-        if (!MI_IsSafeComponent(MI_BaseName(mods.paths[i]))) continue;
-        ++usage.mods;
-        {
-            long bytes = MI_CountTreeBytes(mods.paths[i], 0);
-            if (bytes > 0 && usage.bytes <= LONG_MAX - bytes) usage.bytes += bytes;
+        usage.mods = 1;
+        usage.bytes = MI_CountTreeBytes(dstRoot, 0);
+        if (MI_Join(songsPath, sizeof(songsPath), dstRoot, "songs") && DirectoryExists(songsPath)) {
+            songs = MI_ListDirectories(songsPath);
+            usage.songs = (int)songs.count;
+            UnloadDirectoryFiles(songs);
         }
-        if (!MI_Join(songsPath, sizeof(songsPath), mods.paths[i], "songs") ||
-            !DirectoryExists(songsPath)) continue;
-        songs = MI_ListDirectories(songsPath);
-        usage.songs += (int)songs.count;
-        UnloadDirectoryFiles(songs);
+    } else {
+        mods = MI_ListDirectories(dstRoot);
+        for (unsigned i = 0; i < mods.count; ++i) {
+            char songsPath[MI_PATH_MAX];
+            FilePathList songs;
+            if (!MI_IsSafeComponent(MI_BaseName(mods.paths[i]))) continue;
+            ++usage.mods;
+            {
+                long bytes = MI_CountTreeBytes(mods.paths[i], 0);
+                if (bytes > 0 && usage.bytes <= LONG_MAX - bytes) usage.bytes += bytes;
+            }
+            if (!MI_Join(songsPath, sizeof(songsPath), mods.paths[i], "songs") ||
+                !DirectoryExists(songsPath)) continue;
+            songs = MI_ListDirectories(songsPath);
+            usage.songs += (int)songs.count;
+            UnloadDirectoryFiles(songs);
+        }
+        UnloadDirectoryFiles(mods);
     }
-    UnloadDirectoryFiles(mods);
     if (out != NULL) *out = usage;
     return 1;
 }
@@ -1416,6 +1597,7 @@ char ModImport_DeleteAll(const char *dstRoot, char *msg, size_t msgSize,
     FilePathList mods;
     FilePathList rootEntries;
     int modCount = 0;
+    int rootIsMod = 0;
     int removedFiles = 0;
     long bytes = 0;
     int ok = 1;
@@ -1436,13 +1618,15 @@ char ModImport_DeleteAll(const char *dstRoot, char *msg, size_t msgSize,
     }
 
     bytes = MI_CountTreeBytes(dstRoot, 0);
+    rootIsMod = MI_HasModLayout(dstRoot);
     mods = MI_ListDirectories(dstRoot);
     for (unsigned i = 0; i < mods.count; ++i) {
-        ++modCount;
+        if (!rootIsMod) ++modCount;
         if (!MI_RemoveTree(mods.paths[i], 0, &removedFiles)) ok = 0;
         if (MI_RMDIR(mods.paths[i]) != 0 && DirectoryExists(mods.paths[i])) ok = 0;
     }
     UnloadDirectoryFiles(mods);
+    if (rootIsMod && bytes > 0) modCount = 1;
 
     /* Remove arquivos soltos na raiz, mas preserva a pasta assets/mods. */
     rootEntries = MI_ListEntries(dstRoot);

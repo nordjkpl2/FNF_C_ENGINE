@@ -85,6 +85,15 @@ static bool Freeplay_GetModRoot(const char *songDir, char *out, size_t outSize)
     char *separator = strchr(modName, '/');
     if (!separator) return false;
 
+    /* Direct-root mod: assets/mods/songs/<song> uses assets/mods. */
+    if ((size_t)(separator - modName) == 5 && memcmp(modName, "songs", 5) == 0) {
+        size_t length = (size_t)(modName - normalized);
+        if (length == 0 || length >= outSize) return false;
+        memcpy(out, normalized, length);
+        out[length] = '\0';
+        return true;
+    }
+
     /* Compatibility with the old duplicated "mods/mods/<name>" root. */
     if ((size_t)(separator - modName) == 4 &&
         memcmp(modName, "mods", 4) == 0) {
@@ -183,6 +192,16 @@ static bool Freeplay_FindHealthIconKey(const char *songDir,
         if (FileExists(candidate) && ReadCharacterHealthIcon(candidate, out)) return true;
     }
 
+    /* Legacy shared mod roots used by imports made before per-mod folders. */
+    snprintf(candidate, sizeof(candidate), "assets/mods/mods/characters/%s.json", opponent);
+    if (FileExists(candidate) && ReadCharacterHealthIcon(candidate, out)) return true;
+
+    snprintf(candidate, sizeof(candidate), "assets/mods/mods/images/characters/%s.json", opponent);
+    if (FileExists(candidate) && ReadCharacterHealthIcon(candidate, out)) return true;
+
+    snprintf(candidate, sizeof(candidate), "assets/mods/characters/%s.json", opponent);
+    if (FileExists(candidate) && ReadCharacterHealthIcon(candidate, out)) return true;
+
     snprintf(candidate, sizeof(candidate), "assets/characters/%s.json", opponent);
     if (FileExists(candidate) && ReadCharacterHealthIcon(candidate, out)) return true;
 
@@ -199,71 +218,153 @@ static bool TryIconNameInDirectory(const char *directory,
     if (!directory || !directory[0] || !IsSafeAssetName(name)) return false;
 
     char path[FREEPLAY_PATH_MAX];
-    snprintf(path, sizeof(path), "%s/icon-%s.png", directory, name);
+    char stem[FREEPLAY_ICON_NAME_MAX];
+    CopyString(stem, sizeof(stem), name);
+    size_t stemLength = strlen(stem);
+    if (stemLength >= 4 &&
+        (stem[stemLength - 4] == '.') &&
+        ((stem[stemLength - 3] == 'p' || stem[stemLength - 3] == 'P') &&
+         (stem[stemLength - 2] == 'n' || stem[stemLength - 2] == 'N') &&
+         (stem[stemLength - 1] == 'g' || stem[stemLength - 1] == 'G'))) {
+        stem[stemLength - 4] = '\0';
+    }
+    if (!stem[0]) return false;
+    if (strncmp(stem, "icon-", 5) != 0) {
+        snprintf(path, sizeof(path), "%s/icon-%s.png", directory, stem);
+        if (FileExists(path)) {
+            CopyString(out, FREEPLAY_PATH_MAX, path);
+            return true;
+        }
+    }
+
+    snprintf(path, sizeof(path), "%s/%s.png", directory, stem);
     if (FileExists(path)) {
         CopyString(out, FREEPLAY_PATH_MAX, path);
         return true;
     }
 
-    snprintf(path, sizeof(path), "%s/%s.png", directory, name);
-    if (FileExists(path)) {
-        CopyString(out, FREEPLAY_PATH_MAX, path);
-        return true;
+    /* Some week files say "icon-charlie", while importers store the alias
+       as "charlie.png". Accept both without directory enumeration. */
+    if (strncmp(stem, "icon-", 5) == 0 && stem[5] != '\0') {
+        snprintf(path, sizeof(path), "%s/%s.png", directory, stem + 5);
+        if (FileExists(path)) {
+            CopyString(out, FREEPLAY_PATH_MAX, path);
+            return true;
+        }
     }
 
     return false;
 }
 
+static bool Freeplay_TryIconNameVariants(const char *directory,
+                                         const char *name,
+                                         char out[FREEPLAY_PATH_MAX]);
+
+static void Freeplay_NormalizeIconName(const char *source, char *destination,
+                                       size_t destinationSize, char separator)
+{
+    if (!destination || destinationSize == 0) return;
+    size_t write = 0;
+    bool previousSeparator = false;
+
+    if (!source) source = "";
+    for (size_t i = 0; source[i] && write + 1 < destinationSize; ++i) {
+        unsigned char c = (unsigned char)source[i];
+        if (c == ' ' || c == '_' || c == '-') {
+            if (separator != '\0' && !previousSeparator)
+                destination[write++] = separator;
+            previousSeparator = true;
+        } else {
+            destination[write++] = (char)c;
+            previousSeparator = false;
+        }
+    }
+    destination[write] = '\0';
+}
+
+static bool Freeplay_TryIconNameVariants(const char *directory,
+                                         const char *name,
+                                         char out[FREEPLAY_PATH_MAX])
+{
+    char variants[4][FREEPLAY_ICON_NAME_MAX];
+    CopyString(variants[0], sizeof(variants[0]), name);
+    Freeplay_NormalizeIconName(name, variants[1], sizeof(variants[1]), '-');
+    Freeplay_NormalizeIconName(name, variants[2], sizeof(variants[2]), '_');
+    Freeplay_NormalizeIconName(name, variants[3], sizeof(variants[3]), '\0');
+
+    for (int i = 0; i < 4; ++i) {
+        if (!variants[i][0]) continue;
+        bool duplicate = false;
+        for (int j = 0; j < i; ++j) {
+            if (strcmp(variants[i], variants[j]) == 0) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) continue;
+
+        if (TryIconNameInDirectory(directory, variants[i], out)) return true;
+    }
+    return false;
+}
+
+/* Called only when selection changes, never from Draw. */
 static bool Freeplay_FindIconPath(const char *songDir,
                                   const char *modRoot,
                                   const char *healthIcon,
                                   const char *opponent,
                                   char out[FREEPLAY_PATH_MAX])
 {
-    char directories[3][FREEPLAY_PATH_MAX];
-    int directoryCount = 0;
+    char directories[7][FREEPLAY_PATH_MAX];
+    int count = 0;
 
-    /* Mod assets always win over base-game assets. */
+    /* The active mod takes priority. This is the canonical layout:
+       assets/mods/<mod>/images/icons/. */
     if (modRoot && modRoot[0]) {
-        snprintf(directories[directoryCount++], FREEPLAY_PATH_MAX,
-                 "%s/images/icons", modRoot);
-        snprintf(directories[directoryCount++], FREEPLAY_PATH_MAX,
-                 "%s/icons", modRoot);
+        (void)snprintf(directories[count++], FREEPLAY_PATH_MAX,
+                       "%s/images/icons", modRoot);
+        (void)snprintf(directories[count++], FREEPLAY_PATH_MAX,
+                       "%s/icons", modRoot);
     }
 
-    if (songDir && songDir[0]) {
-        snprintf(directories[directoryCount++], FREEPLAY_PATH_MAX,
-                 "%s/images/icons", songDir);
+    /* Legacy shared folders used by early imports. */
+    (void)snprintf(directories[count++], FREEPLAY_PATH_MAX,
+                   "assets/mods/mods/images/icons");
+    (void)snprintf(directories[count++], FREEPLAY_PATH_MAX,
+                   "assets/mods/images/icons");
+
+    /* Some packs keep icons beside their song data. */
+    if (songDir && songDir[0] && count < 7) {
+        (void)snprintf(directories[count++], FREEPLAY_PATH_MAX,
+                       "%s/images/icons", songDir);
     }
 
     const char *names[2] = {healthIcon, opponent};
-
-    for (int d = 0; d < directoryCount; ++d) {
+    for (int d = 0; d < count; ++d) {
         for (int n = 0; n < 2; ++n) {
             if (!names[n] || !names[n][0]) continue;
             if (n == 1 && names[0] && strcmp(names[0], names[1]) == 0) continue;
-            if (TryIconNameInDirectory(directories[d], names[n], out)) return true;
+            if (Freeplay_TryIconNameVariants(directories[d], names[n], out))
+                return true;
         }
     }
 
-    /* Some mods keep a song-specific icon beside the chart/audio files. */
-    if (songDir && songDir[0]) {
-        if (TryIconNameInDirectory(songDir, healthIcon, out)) return true;
-        if (opponent && strcmp(healthIcon, opponent) != 0 &&
-            TryIconNameInDirectory(songDir, opponent, out)) return true;
+    /* Base-game icons are the final lookup, never searched before mod icons. */
+    const char *baseNames[2] = {healthIcon, opponent};
+    for (int n = 0; n < 2; ++n) {
+        if (!baseNames[n] || !baseNames[n][0]) continue;
+        if (n == 1 && baseNames[0] && strcmp(baseNames[0], baseNames[1]) == 0) continue;
+        if (Freeplay_TryIconNameVariants("assets/images/icons", baseNames[n], out))
+            return true;
     }
-
-    /* Global icons are the final asset fallback. */
-    if (TryIconNameInDirectory("assets/images/icons", healthIcon, out)) return true;
-    if (opponent && strcmp(healthIcon, opponent) != 0 &&
-        TryIconNameInDirectory("assets/images/icons", opponent, out)) return true;
 
     return false;
 }
 
 static void Freeplay_UnloadSelectedIcon(void)
 {
-    if (selectedIconLoaded) UnloadTexture(selectedIcon);
+    if (selectedIconLoaded && selectedIcon.id != 0)
+        UnloadTexture(selectedIcon);
 
     selectedIcon = (Texture2D){0};
     selectedIconLoaded = false;
@@ -272,7 +373,6 @@ static void Freeplay_UnloadSelectedIcon(void)
     selectedOpponent[0] = '\0';
 }
 
-/* Called only when selection changes, never from Draw. */
 static void Freeplay_LoadSelectedIcon(void)
 {
     if (selectedIconResolved && selectedIconSong == selectedSong) return;
@@ -285,20 +385,45 @@ static void Freeplay_LoadSelectedIcon(void)
 
     const char *songDir = songs[selectedSong].dir;
     char opponent[FREEPLAY_ICON_NAME_MAX] = {0};
-    SongList_Opponent(songDir, opponent);
-    if (!opponent[0]) CopyString(opponent, sizeof(opponent), "bf");
-    CopyString(selectedOpponent, sizeof(selectedOpponent), opponent);
 
     char modRoot[FREEPLAY_PATH_MAX] = {0};
     (void)Freeplay_GetModRoot(songDir, modRoot, sizeof(modRoot));
 
-    char healthIcon[FREEPLAY_ICON_NAME_MAX] = {0};
-    (void)Freeplay_FindHealthIconKey(songDir, modRoot, opponent, healthIcon);
+    /* SongList parses the complete chart once during scanning. Do not parse
+       data.json again here: it may contain generic/stale player2 metadata. */
+    if (songs[selectedSong].opp[0] &&
+        IsSafeAssetName(songs[selectedSong].opp)) {
+        CopyString(opponent, sizeof(opponent), songs[selectedSong].opp);
+    } else if (SongList_Opponent(songDir, opponent) &&
+               IsSafeAssetName(opponent)) {
+        CopyString(songs[selectedSong].opp,
+                   sizeof(songs[selectedSong].opp), opponent);
+    }
+    if (!opponent[0]) CopyString(opponent, sizeof(opponent), "unknown");
+    CopyString(selectedOpponent, sizeof(selectedOpponent), opponent);
 
     char iconPath[FREEPLAY_PATH_MAX];
-    if (Freeplay_FindIconPath(songDir, modRoot, healthIcon, opponent, iconPath)) {
+
+    /* Psych week JSON maps each song to an explicit icon key:
+       ["song-name", "icon-charlie", [r,g,b]]. This takes precedence over
+       chart player2 because some mod charts still declare player2="dad". */
+    if (songs[selectedSong].weekIcon[0] &&
+        IsSafeAssetName(songs[selectedSong].weekIcon) &&
+        Freeplay_FindIconPath(songDir, modRoot,
+                              songs[selectedSong].weekIcon, NULL, iconPath)) {
         selectedIcon = Render_LoadTexture(iconPath);
         selectedIconLoaded = selectedIcon.id != 0;
+    }
+
+    /* Character healthicon is the next choice when the week has no icon. */
+    if (!selectedIconLoaded) {
+        char healthIcon[FREEPLAY_ICON_NAME_MAX] = {0};
+        (void)Freeplay_FindHealthIconKey(songDir, modRoot, opponent, healthIcon);
+        if (!healthIcon[0]) CopyString(healthIcon, sizeof(healthIcon), opponent);
+        if (Freeplay_FindIconPath(songDir, modRoot, healthIcon, opponent, iconPath)) {
+            selectedIcon = Render_LoadTexture(iconPath);
+            selectedIconLoaded = selectedIcon.id != 0;
+        }
     }
 
     /* Universal fallback. Do not retry it every frame if it is also missing. */
@@ -360,13 +485,17 @@ static void Freeplay_Update([[maybe_unused]] RayScene *scene)
     if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER) ||
         IsKeyPressed(KEY_KP_ENTER)) {
         const char *dir = songs[selectedSong].dir;
+
+        /* Set the destination before choosing the loading path.
+         * Heavy tracks pass through LoadingState, but PlayState still needs
+         * the same song directory when the loading scene finishes. */
+        PlayState_SetSongDir(dir);
         RayGame_ToggleMusic(0);
 
         if (SongList_IsHeavy(dir)) {
             LoadingState_SetSongDir(dir);
             LoadingState_SetScene();
         } else {
-            PlayState_SetSongDir(dir);
             PlayState_SetScene();
         }
         return;

@@ -236,14 +236,59 @@ static float Scroll_StrumlineY(void) { return Scroll_StrumY(0); }
 
 static void UpdateSection(void);
 
+// Resolve audio with the same extensions accepted by ModImport and SongList.
+static char PlayState_FindAudioPath(const char *baseName, char out[512]) {
+    static const char *const extensions[] = {"ogg", "mp3", "wav"};
+
+    if (out == NULL || baseName == NULL || baseName[0] == '\0') return 0;
+    out[0] = '\0';
+
+    for (size_t i = 0; i < sizeof(extensions) / sizeof(extensions[0]); ++i) {
+        int written = snprintf(out, 512, "%s/%s.%s", songDir, baseName, extensions[i]);
+        if (written > 0 && written < 512 && FileExists(out)) return 1;
+    }
+    out[0] = '\0';
+    return 0;
+}
+
+static Music PlayState_LoadInstrumental(void) {
+    char path[512];
+    Music music = {0};
+
+    if (!PlayState_FindAudioPath("Inst", path)) {
+        TraceLog(LOG_ERROR, "Instrumental not found (Inst.ogg/mp3/wav): %s", songDir);
+        return music;
+    }
+
+    music = LoadMusicStream(path);
+    if (music.stream.buffer == NULL) {
+        TraceLog(LOG_ERROR, "Could not load instrumental: %s", path);
+        return (Music){0};
+    }
+
+    music.looping = 0;
+    SetMusicVolume(music, RayGame_MusicVolumeLevel());
+    return music;
+}
+
 // 2. Vozes
 static void Voices_Load(void) {
-    hasVoices = FileExists(TextFormat("%s/Voices.ogg", songDir));
-    if (hasVoices) {
-        voices = LoadMusicStream(TextFormat("%s/Voices.ogg", songDir));
-        voices.looping = 0;
-        SetMusicVolume(voices, RayGame_MusicVolumeLevel());
+    char path[512];
+
+    hasVoices = 0;
+    voices = (Music){0};
+    if (!PlayState_FindAudioPath("Voices", path)) return;
+
+    voices = LoadMusicStream(path);
+    if (voices.stream.buffer == NULL) {
+        TraceLog(LOG_WARNING, "Could not load voices: %s", path);
+        voices = (Music){0};
+        return;
     }
+
+    voices.looping = 0;
+    SetMusicVolume(voices, RayGame_MusicVolumeLevel());
+    hasVoices = 1;
 }
 
 static void Voices_Play(void) {
@@ -347,11 +392,8 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
             note->pressed = 0;
         }
 
-        inst = LoadMusicStream(TextFormat("%s/Inst.ogg", songDir));
+        inst = PlayState_LoadInstrumental();
         Voices_Load();
-
-        inst.looping = 0;
-        SetMusicVolume(inst, RayGame_MusicVolumeLevel());
 
         PlayMusicStream(inst);
         Voices_Play();
@@ -547,11 +589,8 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
 
     // Música & Notas
     {
-        inst = LoadMusicStream(TextFormat("%s/Inst.ogg", songDir));
+        inst = PlayState_LoadInstrumental();
         Voices_Load();
-
-        inst.looping = 0;
-        SetMusicVolume(inst, RayGame_MusicVolumeLevel());
 
         firstNote = 0;
         noteCount = 0;
