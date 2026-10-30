@@ -4,6 +4,7 @@
 #include "scenes/Note.h"
 #include "scenes/Song.h"
 #include <stdlib.h>
+#include <string.h>
 
 //!OUTD day30/10/2026
 /* // * Gameplay Score Misses e Tempo */
@@ -117,6 +118,10 @@ static int lastMissesDrawn = -1;
 static char missBuf[32] = "Misses: 0";
 static Vector2 missPos;
 
+// Nome da música exibido acima do score.
+static char songDisplayName[128] = "Unknown Song";
+static Vector2 songDisplayNamePos = {910.0f, 650.0f};
+
 static int lastTimeSec = -1;
 static char timeBuf[32] = "0:00 / 0:00";
 static Vector2 timePos;
@@ -125,6 +130,52 @@ static float lastVoiceSync = -10.0f;
 static float popupTimer;
 static float popupVelocity;
 static RayAnimatedObject popupObj; 
+
+// Extrai o nome da pasta da música e prepara um título curto para o HUD.
+static void PlayState_UpdateSongDisplayName(void) {
+    const char* end = songDir + strlen(songDir);
+
+    while(end > songDir && (end[-1] == '/' || end[-1] == '\\'))
+        end--;
+
+    const char* start = end;
+    while(start > songDir && start[-1] != '/' && start[-1] != '\\')
+        start--;
+
+    size_t length = (size_t)(end - start);
+    if(length == 0) {
+        snprintf(songDisplayName, sizeof(songDisplayName), "Unknown Song");
+    } else {
+        if(length >= sizeof(songDisplayName))
+            length = sizeof(songDisplayName) - 1;
+
+        memcpy(songDisplayName, start, length);
+        songDisplayName[length] = '\0';
+    }
+
+    // Deixa nomes de pastas como "song-name" mais legíveis no HUD.
+    for(char* c = songDisplayName; *c; c++) {
+        if(*c == '_' || *c == '-')
+            *c = ' ';
+    }
+
+    Vector2 textSize = MeasureTextEx(vcrFont, songDisplayName, 13.0f, 1.0f);
+    while(textSize.x > 350.0f && strlen(songDisplayName) > 4) {
+        length = strlen(songDisplayName) - 1;
+        songDisplayName[length] = '\0';
+
+        if(length >= 3) {
+            songDisplayName[length - 3] = '.';
+            songDisplayName[length - 2] = '.';
+            songDisplayName[length - 1] = '.';
+        }
+
+        textSize = MeasureTextEx(vcrFont, songDisplayName, 13.0f, 1.0f);
+    }
+
+    songDisplayNamePos.x = 1270.0f - textSize.x;
+    songDisplayNamePos.y = 651.0f;
+}
 
 // pause menu
 static char isPaused;
@@ -380,6 +431,8 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
         else
             Song_LoadSongFromDir(&song, songDir);
 
+        PlayState_UpdateSongDisplayName();
+
         if(strcmp(diffSuf, "easy") == 0)
             Note_SetWindow(0.240f);
         else if(strcmp(diffSuf, "hard") == 0)
@@ -611,7 +664,7 @@ static void HitNote(Note* note) {
     }
 
     Vector2 size = AnimatedObject_Sizes(&popupObj); 
-    popupObj.position.x = healthbar.x + healthbar.width + 150 - size.x / 2;
+    popupObj.position.x = healthbar.x + (healthbar.width - size.x) * 0.5f;
     popupObj.position.y = 600 + GetRandomValue(-1000, 1000) / 200.0f;
     popupVelocity = -150;
     popupTimer = 1.0f;
@@ -1295,6 +1348,17 @@ CLIPPED:
                 DrawTextEx(vcrFont, timeBuf, timePos, 20.0f, 1, WHITE);
             }
 
+            // Nome da música, alinhado à direita acima do score.
+            {
+                const Color titleShadow = {0, 0, 0, 180};
+                const Color titleColor = {225, 225, 225, 220};
+                DrawTextEx(vcrFont, songDisplayName,
+                    (Vector2){songDisplayNamePos.x + 1.0f, songDisplayNamePos.y + 1.0f},
+                    13.0f, 1.0f, titleShadow);
+                DrawTextEx(vcrFont, songDisplayName, songDisplayNamePos,
+                    13.0f, 1.0f, titleColor);
+            }
+
             // Score e Misses
             if(game_options_showScore) {
                 if(score != lastScoreDrawn) {
@@ -1352,6 +1416,19 @@ CLIPPED:
 
             Render_DrawAnimatedObject(&popupObj);
             popupTimer -= RayGame_DeltaTime();
+        }
+
+        // Marca d'agua fixa: sem movimento, escala pulsante ou fade.
+        if(game_options_botplay) {
+            const Vector2 botplayPos = {22.0f, 20.0f};
+            const Color botplayShadow = {0, 0, 0, 110};
+            const Color botplayColor = {255, 255, 255, 125};
+
+            DrawTextEx(vcrFont, "BOTPLAY",
+                (Vector2){botplayPos.x + 2.0f, botplayPos.y + 2.0f},
+                22.0f, 1.0f, botplayShadow);
+            DrawTextEx(vcrFont, "BOTPLAY", botplayPos,
+                22.0f, 1.0f, botplayColor);
         }
     }
     
