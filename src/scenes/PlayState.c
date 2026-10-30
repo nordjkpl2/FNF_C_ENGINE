@@ -86,6 +86,8 @@ static int spawnedSections;
 // strumlines
 static StrumNote dadStrumline[4];
 static StrumNote bfStrumline[4];
+static Vector2 dadStrumIdleSizes[4];
+static Vector2 bfStrumIdleSizes[4];
 
 // camera
 static Vector2 cameraTarget; 
@@ -407,6 +409,18 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
                 dadStrum->object.position.x = Scroll_OppStrumX(i);
                 bfStrum->object.position.x = Scroll_PlayerStrumX(i);
             }
+        }
+
+        // Cacheia o tamanho idle uma vez: não mede/refaz a animação a cada frame.
+        for(int i = 0; i < 4; i++) {
+            RayAnimatedObject dadIdle = dadStrumline[i].object;
+            RayAnimatedObject bfIdle = bfStrumline[i].object;
+
+            AnimatedObject_SetAnimation(&dadIdle, StrumNote_IdleAnimation(i));
+            AnimatedObject_SetAnimation(&bfIdle, StrumNote_IdleAnimation(i));
+
+            dadStrumIdleSizes[i] = AnimatedObject_Sizes(&dadIdle);
+            bfStrumIdleSizes[i] = AnimatedObject_Sizes(&bfIdle);
         }
 
         Render_DefaultAnimated(&trail); 
@@ -1032,6 +1046,30 @@ static void UpdateCharacterIdle(Character* character) {
     }
 }
 
+/*
+ * Desenha o receptor mantendo o centro visual da animação idle como âncora.
+ *
+ * Algumas animações (principalmente confirm) possuem quadros maiores por causa
+ * do brilho. Como o renderer posiciona o quadro pela posição do objeto, a seta
+ * parece saltar quando a dimensão do quadro muda. O tamanho idle é medido
+ * uma vez na criação da strumline e passado como referência.
+ *
+ * A posição original é restaurada depois do desenho, então notas e sustains
+ * continuam usando a coordenada fixa da coluna.
+ */
+static void RenderStrumNoteFixedCenter(StrumNote* strum, Vector2 idleSize) {
+    Vector2 currentSize = AnimatedObject_Sizes(&strum->object);
+    Vector2 originalPosition = strum->object.position;
+
+    strum->object.position.x += (idleSize.x - currentSize.x) * 0.5f;
+    strum->object.position.y += (idleSize.y - currentSize.y) * 0.5f;
+
+    Render_DrawAnimatedObject(&strum->object);
+
+    // A coordenada lógica da coluna nunca muda.
+    strum->object.position = originalPosition;
+}
+
 static void PlayState_Draw([[maybe_unused]] RayScene* scene) {  
     if(!game_options_botplay && health < 0) {
         ClearBackground(BLACK);
@@ -1079,10 +1117,10 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
             StrumNote *bfStrum = bfStrumline + i;
 
             AnimatedObject_UpdateFrame(&dadStrum->object);
-            Render_DrawAnimatedObject(&dadStrum->object);
+            RenderStrumNoteFixedCenter(dadStrum, dadStrumIdleSizes[i]);
 
             AnimatedObject_UpdateFrame(&bfStrum->object);
-            Render_DrawAnimatedObject(&bfStrum->object);
+            RenderStrumNoteFixedCenter(bfStrum, bfStrumIdleSizes[i]);
         }
 
         // Reset receptors do BF no botplay se a animação de confirm terminou
