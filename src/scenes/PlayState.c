@@ -3,15 +3,14 @@
 #include "scenes/Character.h"
 #include "scenes/Note.h"
 #include "scenes/Song.h"
-//!OUTD day16/10/2026
+#include <stdlib.h>
+
+//!OUTD day30/10/2026
 /* // * Gameplay Score Misses e Tempo */
 
 static float smooth(float a, float b, float c) {
     return Lerp(a, b, c * c * c * c);
 }
-
-// scroll style helpers (0=Normal, 1=Downscroll, 2=Middlescroll)
-// Coords em 1280x720; stretch/zoom aplicados pela camera.
 
 typedef struct { 
     RayGraphicObject* objects;
@@ -23,10 +22,10 @@ typedef struct {
 
 // intro / ui
 static int introHit;
-static float introTime,introStep;  
+static float introTime, introStep;  
 
 struct { 
-    int sick,good,bad,shit;
+    int sick, good, bad, shit;
 } UI_ASSETS;
 
 static RayAnimationHandler uiAssets;
@@ -46,19 +45,17 @@ static Stage stage;
 static char songDir[256];
 static char hasVoices;
 static char audioWasPaused;
-static char returnToEditor,returnToWeek,diffSuf[16], overrideP2[32];
-static Music inst,voices;
+static char returnToEditor, returnToWeek, diffSuf[16], overrideP2[32];
+static Music inst, voices;
 static Song song; 
 
-// 
 static char restarted;
 
 // death
 static int deathAnimations[3];
 static float deadTime;
 static char justDied;
-static Music deathMusic;
-static Music deathMusicEnd;
+static Music deathMusic,deathMusicEnd;
 static Sound deathSounds;
 static char retryin;
 
@@ -67,7 +64,7 @@ static int currentSteps;
 static int currentSection;
 static BeatManager songBeat; 
 
-// optimizing this bih
+// optimizing
 static RayAnimatedObject trail;
 static RayAnimatedObject end;
 static RayAnimatedObject renderNote;
@@ -77,10 +74,9 @@ Note* notes;
 size_t noteCount;
 size_t firstNote;
 
-// notes for the sustain notes!
+// sustain colors
 static const Color normalColor = {255, 255, 255, 200};
 static const Color missedColor = {150, 150, 150, 200};
-// trail offset (static for now)
 static const Vector2 trailOffset = {40, 60}; 
 
 static int nextSectionToSpawn;
@@ -90,16 +86,16 @@ static int spawnedSections;
 static StrumNote dadStrumline[4];
 static StrumNote bfStrumline[4];
 
-// camera stuff
+// camera
 static Vector2 cameraTarget; 
 static Camera2D camGame; 
 static Camera2D camHUD; 
 
-// miss sounds
+// sfx
 static Sound missSFX[3]; 
 static Sound hitSFX;
 
-// ui stuff 
+// ui
 static Font vcrFont;
 static float bop;
 static float bopT;
@@ -136,20 +132,24 @@ static int currentOption;
 static float optionOffset;
 static float pauseTimer;
 
+// Função de ordenação para qsort (Garante que nunca ocorra bug de notas fora de ordem)
+static int Note_CompareChronological(const void* a, const void* b) {
+    float diff = ((const Note*)a)->time - ((const Note*)b)->time;
+    if (diff < 0) return -1;
+    if (diff > 0) return 1;
+    return 0;
+}
+
 // ~ 1. StrumLines  
 static float Scroll_StrumY(char mustHit) {
-    if (game_options_scroll == 2) {
-        return 20.0f;
-    }
-    if (game_options_scroll == 1) {
-        return 670.0f;
-    }
+    if (game_options_scroll == 2) return 20.0f;
+    if (game_options_scroll == 1) return 670.0f;
     return 50.0f;
 }
 
 static float Scroll_NoteVelocity(void) {
-    if (game_options_scroll == 1) return 450.0f;   // Downscroll
-    return -450.0f; // Normal/Middlescroll
+    if (game_options_scroll == 1) return 450.0f;
+    return -450.0f;
 }
 
 static float Scroll_StrumX(int lane, char mustHit) {
@@ -297,7 +297,7 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
         return;
     }
 
-    // UI e Fontes
+    // UI
     { 
         vcrFont = LoadFontEx("assets/fonts/vcr.ttf", 32, 0, 0); 
         SetTextureFilter(vcrFont.texture, TEXTURE_FILTER_BILINEAR);
@@ -311,7 +311,6 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
         dadColor = (Color) { 204, 85, 180, 255 };
         bfColor = (Color) { 0, 217, 204, 255 };
 
-        // Inicializa buffers visuais
         snprintf(scoreBuf, sizeof(scoreBuf), "Score: 0");
         Vector2 ss = MeasureTextEx(vcrFont, scoreBuf, 16, 1);
         scorePos = (Vector2){ 1270 - ss.x, 672 };
@@ -374,7 +373,7 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
         renderNote.scaleY = 0.7f;
     }
 
-    // Personagens e Áudios
+    // Personagens e sons
     {
         if(diffSuf[0] != 0)
             Song_LoadSongFromDirDiff(&song, songDir, diffSuf);
@@ -403,7 +402,6 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
         hitSFX = LoadSound("assets/sounds/hitosu!mania.ogg");
         SetSoundVolume(hitSFX, 0.5f);
 
-        // Pre-carrega sons de morte aqui (SEM stutter na morte)
         deathSounds = LoadSound("assets/sounds/fnf_loss_sfx.ogg");
         deathMusic = LoadMusicStream("assets/music/gameOver.ogg");
         deathMusic.looping = 1;
@@ -450,7 +448,7 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
         stage.defaultCameraZoom = 0.9f;
     }
 
-    // Música
+    // Música & Notas
     {  
         inst = LoadMusicStream(TextFormat("%s/Inst.ogg", songDir)); 
         Voices_Load();
@@ -458,7 +456,6 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
         inst.looping = 0;
         SetMusicVolume(inst, RayGame_MusicVolumeLevel());
         
-        // Carrega notas
         firstNote = 0;
         noteCount = 0;
         for(size_t i = 0; i < song.sectionCount; i++)
@@ -472,6 +469,11 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
                 Note_Load(notes + noteIndex, song.sections[i].notes + j);
                 noteIndex++;
             }
+        }
+
+        // ORDENAÇÃO CRÍTICA: Resolve bug de notas passando do receptor e culling prematuro!
+        if (noteCount > 0) {
+            qsort(notes, noteCount, sizeof(Note), Note_CompareChronological);
         }
 
         PlayMusicStream(inst);
@@ -521,7 +523,6 @@ static void PlayState_Create([[maybe_unused]] RayScene* scene) {
 
     camGame.zoom = stage.defaultCameraZoom; 
 
-    // Pré-aquecimento da GPU e decodificador
     {
         ClearBackground(BLACK);
         for(int i = 0; i < 10; i++) {
@@ -626,6 +627,13 @@ static void HitNote(Note* note) {
 static void GhostMiss(int lane);
 
 static void NoteHits() { 
+    // SE BOTPLAY ESTIVER ATIVO: O acerto agora ocorre diretamente no receptor (em PlayState_Draw)
+    // exatamente como o oponente, deixando as notas 100% visíveis e imunes a morte!
+    if(game_options_botplay) {
+        health = 0.5f; // Mantém a vida travada e imortal no botplay
+        return;
+    }
+
     char pressed[4] = {0, 0, 0, 0}; 
     int pressedNotes = 0;
 
@@ -639,9 +647,6 @@ static void NoteHits() {
         if(keyPressed[i])
             anyPressed = 1;
     }
-
-    if(game_options_botplay)
-        goto AUTOPLAY;
 
     if(game_options_ghost == 1 && anyPressed) {
         char hittable[4] = {0, 0, 0, 0};
@@ -698,23 +703,8 @@ static void NoteHits() {
         } 
     }
 
-AUTOPLAY:
-    if(game_options_botplay) {
-        for(size_t i = firstNote; i < noteCount; i++) {
-            Note* note = notes + i;
-            if(Note_TooEarly(note, songBeat.time)) break;
-            if(!note->mustHit || note->missed || note->pressed) continue;
-            if(note->id < 0 || note->id > 3) continue;
-            if(Note_CanBeHit(note, songBeat.time) && !pressed[note->id]) {
-                pressed[note->id] = 1;
-                HitNote(note);
-                AnimatedObject_SetAnimation(&bf.object, bf.animations.notes[note->id]);
-            }
-        }
-    }
-
 BRUH:
-    if(game_options_ghost == 2 && !game_options_botplay) {
+    if(game_options_ghost == 2) {
         for(int i = 0; i < 4; i++) {
             if(keyPressed[i] && !pressed[i])
                 GhostMiss(i);
@@ -858,8 +848,10 @@ static void PlayState_Update([[maybe_unused]] RayScene* scene) {
         return;
     }
     
-    if(health < 0)
+    // No botplay, vida nunca é menor que 0
+    if(!game_options_botplay && health < 0) {
         PlayState_DeadUpdate(); 
+    }
     else if(songBeat.time < 0) {
         introTime += RayGame_DeltaTime(); 
         songBeat.time += RayGame_DeltaTime();
@@ -955,6 +947,8 @@ static void PlayState_Update([[maybe_unused]] RayScene* scene) {
 }
 
 static void MissNote(Note* note) {
+    if(game_options_botplay) return; // BOTPLAY NUNCA DISPARA MISS
+
     note->missed = 1;
     bf.idleTimer = 0;
     health -= 0.02f;
@@ -965,7 +959,9 @@ static void MissNote(Note* note) {
 }
 
 static void GhostMiss(int lane) {
+    if(game_options_botplay) return; // BOTPLAY NUNCA DISPARA MISS
     if(lane < 0 || lane > 3) return;
+
     bf.idleTimer = 0;
     health -= 0.02f;
     misses++;
@@ -984,7 +980,7 @@ static void UpdateCharacterIdle(Character* character) {
 }
 
 static void PlayState_Draw([[maybe_unused]] RayScene* scene) {  
-    if(health < 0){
+    if(!game_options_botplay && health < 0) {
         ClearBackground(BLACK);
 
         Render_SetCamera(&camGame); 
@@ -1036,6 +1032,16 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
             Render_DrawAnimatedObject(&bfStrum->object);
         }
 
+        // Reset receptors do BF no botplay se a animação de confirm terminou
+        if (game_options_botplay) {
+            for(int i = 0; i < 4; i++) {
+                StrumNote *bfStrum = bfStrumline + i;
+                if (AnimatedObject_FinishedAnimation(&bfStrum->object)) {
+                    AnimatedObject_SetAnimation(&bfStrum->object, StrumNote_IdleAnimation(i));
+                }
+            }
+        }
+
         // Render notas
         { 
             rlSetBlendFactorsSeparate(0x0302, 0x0303, 1, 0x0303, 0x8006, 0x8006);
@@ -1053,7 +1059,6 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
             for(int k = 0; k < 4; k++)
                 holdDown[k] = game_options_botplay || IsKeyDown(game_scheme_keys[game_options_scheme][k]);
 
-            // Avanço de firstNote sem fabsf perigoso
             while(firstNote < noteCount) {
                 Note* n = notes + firstNote;
                 char resolved = (n->id < 0 || n->id > 3) || n->pressed || n->missed;
@@ -1071,7 +1076,6 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
                 if(note->id < 0 || note->id > 3)
                     continue;
 
-                // Fim das notas visíveis (otimizado: sem multiplicação no loop)
                 if(note->time > cutoffTime)
                     break;
 
@@ -1091,10 +1095,21 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
                 if(!renderNote.currentAnim.isValid || renderNote.currentAnim.animationIndex != headAnim)
                     AnimatedObject_SetAnimation(&renderNote, headAnim);
 
+                // --- ACERTO DO OPONENTE ---
                 if(!note->mustHit && !note->pressed && songBeat.time >= note->time) {
                     note->pressed = 1;  
                     dad.idleTimer = 0;
                     AnimatedObject_SetAnimation(&dad.object, dad.animations.notes[note->id]);
+                    AnimatedObject_SetAnimation(&dadStrumline[note->id].object, StrumNote_ConfirmAnimation(note->id));
+                }
+
+                // --- ACERTO DO BOTPLAY (TOCA EXATAMENTE COMO O OPONENTE NO RECEPTOR) ---
+                if(note->mustHit && game_options_botplay && !note->pressed && songBeat.time >= note->time) {
+                    note->pressed = 1;
+                    score += 350; // Pontuação sick sem travar a CPU
+                    bf.idleTimer = 0;
+                    AnimatedObject_SetAnimation(&bf.object, bf.animations.notes[note->id]);
+                    AnimatedObject_SetAnimation(&bfStrumline[note->id].object, StrumNote_ConfirmAnimation(note->id));
                 }
 
                 if(note->length > 0) { 
@@ -1122,6 +1137,11 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
                                 dad.idleTimer = 0;
                             }
                         }
+                        else if(game_options_botplay) {
+                            if(shouldHold) {
+                                bf.idleTimer = 0;
+                            }
+                        }
                         else if(!note->pressed)
                             goto SKIP_CLIP;
                         else if(!isPaused && shouldHold) {
@@ -1135,7 +1155,7 @@ static void PlayState_Draw([[maybe_unused]] RayScene* scene) {
                             bf.idleTimer = 0;  
                         } 
 
-                        // Clip geométrico do receptor
+                        // Clip geométrico
                         if (game_options_scroll == 2) {
                             float receptorX = targetStrumNote->object.position.x + trailOffset.x;
                             float trailRight = trail.position.x + trail.scaleX * 44.0f;
@@ -1256,7 +1276,7 @@ CLIPPED:
                 DrawRectangle((int)(offsetX + middle), (int)(healthbar.y + healthbarPadding), (int)(availableWidth - middle), (int)availableHeight, bfColor);
             }
 
-            // Tempo (com cache de formatação e medição por segundo)
+            // Tempo
             {
                 int currentSec = (int)(songBeat.time < 0 ? 0 : songBeat.time);
                 if(currentSec != lastTimeSec) {
@@ -1275,7 +1295,7 @@ CLIPPED:
                 DrawTextEx(vcrFont, timeBuf, timePos, 20.0f, 1, WHITE);
             }
 
-            // Score e Misses (MeasureTextEx só chamado quando o valor muda)
+            // Score e Misses
             if(game_options_showScore) {
                 if(score != lastScoreDrawn) {
                     snprintf(scoreBuf, sizeof(scoreBuf), "Score: %d", score);
@@ -1324,7 +1344,8 @@ CLIPPED:
         if(songBeat.time < 0) 
             Render_DrawAnimatedObject(&introText);
         
-        if(popupTimer > 0) {
+        // No botplay não cria popup para não matar o FPS em spam notes
+        if(!game_options_botplay && popupTimer > 0) {
             popupVelocity += 500 * RayGame_DeltaTime();
             popupObj.position.y += popupVelocity * RayGame_DeltaTime();
             popupObj.color.a = smooth(255.0f, 0, 1 - popupTimer); 
@@ -1395,7 +1416,6 @@ static void PlayState_Destroy([[maybe_unused]] RayScene* scene) {
 
     UnloadSound(hitSFX);
 
-    // Sons de morte
     UnloadSound(deathSounds);
     UnloadMusicStream(deathMusic);
     UnloadMusicStream(deathMusicEnd);
