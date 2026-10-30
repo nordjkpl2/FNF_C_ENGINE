@@ -1,38 +1,56 @@
-/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 #pragma once
 #ifndef STAGE_H
 #define STAGE_H
-// Parser subset de stage .lua da Psych, sem LuaJIT/VM (so no load, zero por frame).
-// Cobre: makeLuaSprite, setLuaSpriteScrollFactor/setScrollFactor,
-// addLuaSprite, scaleObject/scaleLuaSprite. Ignora shaders/anim.
-// Retangulo de fundo p/ cobertura (sem tipos raylib: testavel isolado).
+
+#include <stdint.h>
+
+/* Parser subset de stage .lua da Psych, sem LuaJIT/VM (somente no load).
+ * Nao executa Lua: apenas extrai comandos de criacao e propriedades de sprites.
+ */
+
 typedef struct {
-    float x, y; // posicao mundo (topo-esq)
-    float imgW, imgH; // tamanho da textura
+    float x, y;          /* posicao mundial (topo-esquerda) */
+    float imgW, imgH;    /* tamanho original da textura */
     float scaleX, scaleY;
 } StageBg;
 
-// Cobre a caixa que a camera percorre com os fundos: escala uniforme minima +
-// deslocamento minimo. So cresce, nunca reduz. So no load, zero por frame.
-void Stage_CoverBackgrounds(StageBg* bgs, int n, float zoom,
+/* Cobertura do percurso da camera: escala uniforme minima + deslocamento.
+ * So cresce, nunca reduz. Executar apenas durante o carregamento do stage.
+ */
+void Stage_CoverBackgrounds(StageBg *bgs, int n, float zoom,
     float dadX, float dadY, float dadOffX, float dadOffY,
     float bfX, float bfY, float bfOffX, float bfOffY);
+
 #define STAGE_MAX_SPRITES 32
 
 typedef struct {
     char image[128];
+
     float x, y;
     float scrollX, scrollY;
     float scaleX, scaleY;
-    int front; // 0 = atras (padrao Psych), 1 = frente
+
+    /* makeGraphic(tag, width, height, color). Dimensoes sao independentes
+     * de scaleX/scaleY: o tamanho desenhado e graphicWidth*scaleX por
+     * graphicHeight*scaleY.
+     */
+    float graphicWidth, graphicHeight;
+    uint8_t colorR, colorG, colorB, colorA;
+    uint8_t isGraphic;
+
+    int front;           /* 0 = atras, 1 = frente (addLuaSprite/setObjectOrder) */
 } StageSprite;
 
-// Acha <nome>.lua em: <mod>/stages/, assets/stages/, assets/data/stages/, songDir/.
-// 1 = achou (out = caminho), 0 = nao.
-char Stage_FindLua(const char* stageName, const char* songDir, char out[300]);
+/* Procura <nome>.lua em <mod>/stages/, <mod>/data/stages/,
+ * assets/stages/, assets/data/stages/ e songDir/.
+ * Retorna 1 quando encontrado; escreve o caminho em out[300].
+ */
+char Stage_FindLua(const char *stageName, const char *songDir, char out[300]);
 
-// Faz parse do texto .lua para out[cap]. Retorna count.
-// ignoredGlitch/ignoredAnim podem ser NULL.
-int Stage_ParseLua(const char* luaText, StageSprite* out, int cap, int* ignoredGlitch, int* ignoredAnim);
+/* Faz parse do subset de Lua suportado para out[capacity]. Retorna quantidade.
+ * ignoredGlitch/ignoredAnim podem ser NULL.
+ */
+int Stage_ParseLua(const char *luaText, StageSprite *out, int capacity,
+                   int *ignoredGlitch, int *ignoredAnim);
 
-#endif
+#endif /* STAGE_H */
