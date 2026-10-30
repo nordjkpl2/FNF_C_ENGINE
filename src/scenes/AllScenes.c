@@ -183,7 +183,7 @@ void AllScenes_StartGame(void) {
     RayGame_SetMusic("assets/music/freakyMenu.ogg", 0.3f, 1);
     RayGame_ToggleMusic(1);
     mainFont = LoadFontEx("assets/fonts/main.ttf", 64, 0, 0);
-    SetTextureFilter(mainFont.texture, TEXTURE_FILTER_BILINEAR);  
+    //SetTextureFilter(mainFont.texture, TEXTURE_FILTER_BILINEAR);  
     NoteSkin_InitDefault();
     NoteSkins_Init();
 }
