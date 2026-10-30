@@ -82,3 +82,5 @@ static double YYJSON_GetNum(yyjson_val* val, double default_val) {
     em coisas q nao aguentam tipo um celular
 
     ai invez de tocar preto 200 notas toca uma textura de bulk
+
+    NÃO TEM GIRLFRIEND NO CHART EDITOR CORRIGE ISSO AI
