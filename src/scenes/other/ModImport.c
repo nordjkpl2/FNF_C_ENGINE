@@ -1,361 +1,1464 @@
-/* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl - Oct 19 2026 */
+/*
+ * Friday Night Funkin' C Engine (c) 2026 nordjkpl
+ * ModImport.c - importacao, inventario e remocao de mods.
+ *
+ * Layout de destino:
+ *   assets/mods/<modName>/{songs,weeks,stages,characters,images}
+ *
+ * Dependencias: raylib (via std.h) e yyjson.
+ * A conversao Sparrow XML -> .animset e feita apenas durante a importacao.
+ */
+
 #include "std.h"
 #include "scenes/ModImport.h"
 #include "yyjson.h"
-#include <io.h>
 
-// ---------- defines e tipos - UMA VEZ SÓ ----------
-#define MI_MAX_XMLFRAMES 2048
-#define MI_MAX_CHARANIMS 64
-#define MI_MAX_ANIMFRAMES 256
-typedef struct { char name[128]; int x,y,w,h,fx,fy; } MI_XmlFrame;
-typedef struct { char role[16]; char sprite[64]; int idx[MI_MAX_ANIMFRAMES]; int idxCount; } MI_CharAnim;
-typedef struct { char healthicon[32]; char imageBase[64]; MI_CharAnim anims[MI_MAX_CHARANIMS]; int animCount; } MI_CharInfo;
-typedef struct { int x,y,w,h,fx,fy; } MI_FrameOut;
+#include <ctype.h>
+#include <errno.h>
+#include <limits.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-// ---------- forwards - UMA VEZ SÓ ----------
-static char* MI_ReadFile(const char* path, long* outSz, long maxSz);
-static long MI_FileSize(const char* path);
-static char MI_XmlStr(const char* tag, const char* tagEnd, const char* attr, char* out, size_t n);
-static int MI_XmlFrames(const char* xml, MI_XmlFrame* out, int cap);
-static char MI_RestOk(const char* s);
+#ifdef _WIN32
+    #include <direct.h>
+    #define MI_MKDIR(path) _mkdir(path)
+    #define MI_RMDIR(path) _rmdir(path)
+#else
+    #include <sys/stat.h>
+    #include <unistd.h>
+    #define MI_MKDIR(path) mkdir((path), 0777)
+    #define MI_RMDIR(path) rmdir(path)
+#endif
 
-// ---------- util HOT ----------
-static inline const char* MI_Base(const char* p) {
-    const char* s1 = strrchr(p, '/');
-    const char* s2 = strrchr(p, '\\');
-    const char* b = (s1 > s2) ? s1 : s2;
-    return b ? b + 1 : p;
+#define MI_PATH_MAX          1024
+#define MI_NAME_MAX          128
+#define MI_MAX_XML_FRAMES    16384
+#define MI_MAX_CHAR_ANIMS    64
+#define MI_MAX_ANIM_FRAMES   256
+#define MI_MAX_ICON_NAMES    128
+#define MI_MAX_DEPTH         32
+#define MI_COPY_BUFFER       65536u
+
+/* Formato binario consumido pelo AnimationSet_LoadAnimations():
+ * int32 animationCount; por animacao: int32 nameLength, name bytes,
+ * int32 dataCount (= frames * 6), seguido por seis int32 por frame.
+ */
+typedef struct MI_XmlFrame {
+    char name[128];
+    int32_t x, y, w, h, fx, fy;
+} MI_XmlFrame;
+
+typedef struct MI_CharAnim {
+    char role[32];
+    char prefix[64];
+    int32_t indices[MI_MAX_ANIM_FRAMES];
+    int indexCount;
+} MI_CharAnim;
+
+typedef struct MI_CharInfo {
+    char healthicon[64];
+    char imagePath[192];
+    MI_CharAnim anims[MI_MAX_CHAR_ANIMS];
+    int animCount;
+} MI_CharInfo;
+
+typedef struct MI_FrameCandidate {
+    int frameIndex;
+    uint64_t order;
+} MI_FrameCandidate;
+
+typedef struct MI_NameList {
+    char names[MI_MAX_ICON_NAMES][64];
+    int count;
+} MI_NameList;
+
+typedef struct MI_ImportContext {
+    const char *srcRoot;
+    const char *dstRoot;
+    ModImportStats *stats;
+    MI_NameList iconNames;
+} MI_ImportContext;
+
+/* ------------------------------------------------------------------------- */
+/* Caminhos e nomes                                                          */
+/* ------------------------------------------------------------------------- */
+
+static const char *MI_BaseName(const char *path)
+{
+    const char *slash1;
+    const char *slash2;
+    const char *base;
+
+    if (path == NULL) return "";
+    slash1 = strrchr(path, '/');
+    slash2 = strrchr(path, '\\');
+    base = path;
+    if (slash1 != NULL && (base == path || slash1 > base)) base = slash1 + 1;
+    if (slash2 != NULL && (base == path || slash2 > base)) base = slash2 + 1;
+    return base;
 }
-static inline char MI_CiEq(const char* a, const char* b) {
-    for(; *a && *b; a++, b++) {
-        char ca = *a, cb = *b;
-        if(ca >= 'A' && ca <= 'Z') ca += 32;
-        if(cb >= 'A' && cb <= 'Z') cb += 32;
-        if(ca != cb) return 0;
+
+static int MI_CaseEqual(const char *a, const char *b)
+{
+    if (a == NULL || b == NULL) return 0;
+    while (*a && *b) {
+        unsigned char ca = (unsigned char)*a++;
+        unsigned char cb = (unsigned char)*b++;
+        if (ca >= 'A' && ca <= 'Z') ca = (unsigned char)(ca + ('a' - 'A'));
+        if (cb >= 'A' && cb <= 'Z') cb = (unsigned char)(cb + ('a' - 'A'));
+        if (ca != cb) return 0;
     }
-    return *a == 0 && *b == 0;
+    return *a == '\0' && *b == '\0';
 }
-static inline char MI_EndsWithI(const char* s, const char* suf) {
-    size_t ls = strlen(s), lf = strlen(suf);
-    return lf <= ls && MI_CiEq(s + ls - lf, suf);
+
+static int MI_EndsWithI(const char *text, const char *suffix)
+{
+    size_t textLen;
+    size_t suffixLen;
+    if (text == NULL || suffix == NULL) return 0;
+    textLen = strlen(text);
+    suffixLen = strlen(suffix);
+    return suffixLen <= textLen &&
+           MI_CaseEqual(text + textLen - suffixLen, suffix);
 }
-static char MI_SafeName(const char* s) {
-    if(!s || !*s) return 0;
-    if(s[0]=='.' && (s[1]==0 || (s[1]=='.' && s[2]==0))) return 0;
-    return strchr(s,'/')==NULL && strchr(s,'\\')==NULL && strstr(s,"..")==NULL;
-}
-static void MI_SanitizeMod(char* dst, size_t n, const char* src) {
-    size_t w=0;
-    for(size_t i=0; src[i] && w+1<n; i++){
-        char c=src[i];
-        dst[w++] = ((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-') ? c : '_';
+
+static int MI_IsSafeComponent(const char *name)
+{
+    const unsigned char *p = (const unsigned char *)name;
+    if (name == NULL || name[0] == '\0') return 0;
+    if (strstr(name, "..") != NULL) return 0;
+    for (; *p; ++p) {
+        if (*p == '/' || *p == '\\' || *p == ':' || *p < 32) return 0;
     }
-    dst[w]=0;
-    if(w==0){ strncpy(dst,"mod",n-1); dst[n-1]=0; }
+    return 1;
 }
-static char MI_Stem(const char* path, char* out, size_t n) {
-    const char* b = MI_Base(path);
-    strncpy(out, b, n-1); out[n-1]=0;
-    char* dot=strrchr(out,'.');
-    if(dot && dot!=out) *dot=0;
-    return out[0]!=0;
-}
-static char* MI_ReadFile(const char* path, long* outSz, long maxSz){
-    FILE* f=fopen(path,"rb"); if(!f) return NULL;
-    fseek(f,0,SEEK_END); long sz=ftell(f); fseek(f,0,SEEK_SET);
-    if(sz<=0||sz>maxSz){ fclose(f); return NULL; }
-    char* buf=malloc((size_t)sz+1); if(!buf){ fclose(f); return NULL; }
-    if(fread(buf,1,(size_t)sz,f)!=(size_t)sz){ free(buf); fclose(f); return NULL; }
-    buf[sz]=0; fclose(f); if(outSz) *outSz=sz; return buf;
-}
-static char MI_CopyFast(const char* src, const char* dst, long* bytes){
-    FILE* in=fopen(src,"rb"); if(!in) return 0;
-    FILE* out=fopen(dst,"wb"); if(!out){ fclose(in); return 0; }
-    char buf[65536]; size_t n; long tot=0;
-    while((n=fread(buf,1,sizeof(buf),in))>0){
-        if(fwrite(buf,1,n,out)!=n) break;
-        tot+=(long)n;
-    }
-    fclose(in); fclose(out);
-    if(bytes) *bytes+=tot;
-    return tot>0 || FileExists(dst);
-}
-static long MI_FileSize(const char* path){
-    FILE* f=fopen(path,"rb"); if(!f) return 0;
-    fseek(f,0,SEEK_END); long s=ftell(f); fclose(f);
-    return s>0?s:0;
-}
-static void MI_WalkSize(const char* path, long* bytes, int* files){
-    if(DirectoryExists(path)){
-        FilePathList l=LoadDirectoryFilesEx(path,NULL,false);
-        for(unsigned i=0;i<l.count;i++) MI_WalkSize(l.paths[i],bytes,files);
-        UnloadDirectoryFiles(l); return;
-    }
-    if(FileExists(path)){ *bytes+=MI_FileSize(path); (*files)++; }
-}
-static int MI_Wipe(const char* path){
-    int r=0;
-    if(DirectoryExists(path)){
-        FilePathList l=LoadDirectoryFilesEx(path,NULL,false);
-        for(unsigned i=0;i<l.count;i++) r+=MI_Wipe(l.paths[i]);
-        UnloadDirectoryFiles(l); (void)rmdir(path); return r;
-    }
-    if(FileExists(path) && remove(path)==0) r++;
-    return r;
-}
-static char MI_RootIsMods(const char* dstRoot){
-    if(!dstRoot||!*dstRoot||strstr(dstRoot,"..")) return 0;
-    size_t L=strlen(dstRoot);
-    while(L>0&&(dstRoot[L-1]=='/'||dstRoot[L-1]=='\\')) L--;
-    if(L<4) return 0;
-    char tail[5]={0}; tail[0]=dstRoot[L-4]; tail[1]=dstRoot[L-3]; tail[2]=dstRoot[L-2]; tail[3]=dstRoot[L-1];
-    for(int i=0;i<4;i++) if(tail[i]>='A'&&tail[i]<='Z') tail[i]+=32;
-    return strcmp(tail,"mods")==0;
-}
-char ModImport_ScanMods(const char* dstRoot, ModImportUsage* out){
-    ModImportUsage u; memset(&u,0,sizeof(u));
-    if(out) *out=u;
-    if(!MI_RootIsMods(dstRoot)||!DirectoryExists(dstRoot)) return 1;
-    FilePathList l=LoadDirectoryFilesEx(dstRoot,NULL,false);
-    for(unsigned i=0;i<l.count;i++){ if(!DirectoryExists(l.paths[i])) continue;
-        u.mods++; long b=0; int f=0; MI_WalkSize(l.paths[i],&b,&f); u.bytes+=b;
-        char sd[300]; snprintf(sd,sizeof(sd),"%s/songs",l.paths[i]);
-        if(DirectoryExists(sd)){ FilePathList s=LoadDirectoryFilesEx(sd,NULL,false);
-            for(unsigned j=0;j<s.count;j++) if(DirectoryExists(s.paths[j])) u.songs++;
-            UnloadDirectoryFiles(s);
+
+static void MI_SanitizeModName(char *dst, size_t dstSize, const char *src)
+{
+    size_t out = 0;
+    if (dst == NULL || dstSize == 0) return;
+    if (src == NULL) src = "mod";
+
+    for (size_t i = 0; src[i] != '\0' && out + 1 < dstSize; ++i) {
+        unsigned char c = (unsigned char)src[i];
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '_' || c == '-') {
+            dst[out++] = (char)c;
+        } else if (c == ' ' || c == '.') {
+            dst[out++] = '_';
         }
     }
-    UnloadDirectoryFiles(l); if(out) *out=u; return 1;
+
+    while (out > 0 && dst[out - 1] == '_') --out;
+    if (out == 0) {
+        const char fallback[] = "mod";
+        size_t n = sizeof(fallback) - 1;
+        if (n >= dstSize) n = dstSize - 1;
+        memcpy(dst, fallback, n);
+        out = n;
+    }
+    dst[out] = '\0';
 }
-char ModImport_DeleteAll(const char* dstRoot, char* msg, size_t msgSize,int* removedMods, long* freedBytes){
-    if(removedMods) *removedMods=0; if(freedBytes) *freedBytes=0;
-    if(!MI_RootIsMods(dstRoot)){ if(msg) snprintf(msg,msgSize,"delete: raiz recusada (so *mods)"); return 0; }
-    if(!DirectoryExists(dstRoot)){ if(msg) snprintf(msg,msgSize,"delete: nada em %s",dstRoot); return 1; }
-    int mods=0,files=0; long freed=0;
-    FilePathList l=LoadDirectoryFilesEx(dstRoot,NULL,false);
-    for(unsigned i=0;i<l.count;i++){ char isDir=DirectoryExists(l.paths[i]); long b=0; int f=0; MI_WalkSize(l.paths[i],&b,&f); files+=MI_Wipe(l.paths[i]); freed+=b; if(isDir) mods++; }
-    UnloadDirectoryFiles(l);
-    if(removedMods) *removedMods=mods; if(freedBytes) *freedBytes=freed;
-    if(msg) snprintf(msg,msgSize,"delete: %d mods, %d arquivos (%ld KB) apagados de %s",mods,files,freed/1024,dstRoot);
+
+static void MI_CopyString(char *dst, size_t dstSize, const char *src)
+{
+    size_t length = 0;
+    if (dst == NULL || dstSize == 0) return;
+    if (src == NULL) {
+        dst[0] = '\0';
+        return;
+    }
+    while (length + 1u < dstSize && src[length] != '\0') ++length;
+    memcpy(dst, src, length);
+    dst[length] = '\0';
+}
+
+static int MI_Join(char *out, size_t outSize, const char *a, const char *b)
+{
+    int written;
+    size_t len;
+    if (out == NULL || outSize == 0 || a == NULL || b == NULL) return 0;
+    len = strlen(a);
+    if (len > 0 && (a[len - 1] == '/' || a[len - 1] == '\\'))
+        written = snprintf(out, outSize, "%s%s", a, b);
+    else
+        written = snprintf(out, outSize, "%s/%s", a, b);
+    return written >= 0 && (size_t)written < outSize;
+}
+
+static int MI_EnsureDirectory(const char *path)
+{
+    char buffer[MI_PATH_MAX];
+    size_t len;
+
+    if (path == NULL || path[0] == '\0') return 0;
+    len = strlen(path);
+    if (len >= sizeof(buffer)) return 0;
+    memcpy(buffer, path, len + 1);
+
+    for (size_t i = 0; i < len; ++i) {
+        if (buffer[i] == '\\') buffer[i] = '/';
+    }
+
+    for (size_t i = 1; i <= len; ++i) {
+        if (buffer[i] == '/' || buffer[i] == '\0') {
+            char saved = buffer[i];
+            buffer[i] = '\0';
+            if (buffer[0] != '\0' && !DirectoryExists(buffer)) {
+                (void)MI_MKDIR(buffer);
+                if (!DirectoryExists(buffer)) {
+                    buffer[i] = saved;
+                    return 0;
+                }
+            }
+            buffer[i] = saved;
+        }
+    }
+    return DirectoryExists(buffer);
+}
+
+static int MI_EnsureParent(const char *filePath)
+{
+    char parent[MI_PATH_MAX];
+    char *slash;
+    size_t len;
+    if (filePath == NULL) return 0;
+    len = strlen(filePath);
+    if (len >= sizeof(parent)) return 0;
+    memcpy(parent, filePath, len + 1);
+    slash = strrchr(parent, '/');
+    {
+        char *backslash = strrchr(parent, '\\');
+        if (backslash != NULL && (slash == NULL || backslash > slash)) slash = backslash;
+    }
+    if (slash == NULL) return 1;
+    *slash = '\0';
+    return MI_EnsureDirectory(parent);
+}
+
+static int MI_IsModsRoot(const char *root)
+{
+    size_t len;
+    size_t modsStart;
+    size_t assetsEnd;
+    size_t assetsStart;
+    if (root == NULL || root[0] == '\0' || strstr(root, "..") != NULL) return 0;
+    len = strlen(root);
+    while (len > 0 && (root[len - 1] == '/' || root[len - 1] == '\\')) --len;
+    if (len < 11u) return 0;
+
+    modsStart = len - 4u;
+    if (modsStart == 0 || (root[modsStart - 1] != '/' && root[modsStart - 1] != '\\')) return 0;
+    if (memcmp(root + modsStart, "mods", 4) != 0 &&
+        memcmp(root + modsStart, "MODS", 4) != 0) {
+        for (size_t i = 0; i < 4u; ++i) {
+            unsigned char c = (unsigned char)root[modsStart + i];
+            if (c >= 'A' && c <= 'Z') c = (unsigned char)(c + ('a' - 'A'));
+            if (c != (unsigned char)"mods"[i]) return 0;
+        }
+    }
+
+    assetsEnd = modsStart - 1u;
+    assetsStart = assetsEnd;
+    while (assetsStart > 0 && root[assetsStart - 1u] != '/' &&
+           root[assetsStart - 1u] != '\\') --assetsStart;
+    if (assetsEnd - assetsStart != 6u) return 0;
+    for (size_t i = 0; i < 6u; ++i) {
+        unsigned char c = (unsigned char)root[assetsStart + i];
+        if (c >= 'A' && c <= 'Z') c = (unsigned char)(c + ('a' - 'A'));
+        if (c != (unsigned char)"assets"[i]) return 0;
+    }
     return 1;
 }
 
-// ---------- Sparrow + Psych ----------
-static char MI_XmlStr(const char* tag, const char* tagEnd, const char* attr, char* out, size_t n){
-    size_t al=strlen(attr); const char* p=tag;
-    while(p+al<tagEnd){ if(strncmp(p,attr,al)==0){ p+=al; size_t w=0; while(p<tagEnd&&*p!='"'&&w+1<n) out[w++]=*p++; out[w]=0; return w>0; } p++; }
-    out[0]=0; return 0;
+static void MI_GetStem(const char *path, char *out, size_t outSize)
+{
+    const char *base = MI_BaseName(path);
+    size_t len;
+    char *dot;
+    if (out == NULL || outSize == 0) return;
+    len = strlen(base);
+    if (len >= outSize) len = outSize - 1;
+    memcpy(out, base, len);
+    out[len] = '\0';
+    dot = strrchr(out, '.');
+    if (dot != NULL && dot != out) *dot = '\0';
 }
-static int MI_XmlFrames(const char* xml, MI_XmlFrame* out, int cap){
-    int n=0; const char* p=xml;
-    while(n<cap){ p=strstr(p,"<SubTexture"); if(!p) break; const char* end=strchr(p,'>'); if(!end) break;
-        MI_XmlFrame* f=out+n; memset(f,0,sizeof(*f)); char tmp[32];
-        if(!MI_XmlStr(p,end," name=\"",f->name,sizeof(f->name))){ p=end+1; continue; }
-        if(!MI_XmlStr(p,end," x=\"",tmp,sizeof(tmp))){ p=end+1; continue; } f->x=atoi(tmp);
-        if(!MI_XmlStr(p,end," y=\"",tmp,sizeof(tmp))){ p=end+1; continue; } f->y=atoi(tmp);
-        if(!MI_XmlStr(p,end," width=\"",tmp,sizeof(tmp))){ p=end+1; continue; } f->w=atoi(tmp);
-        if(!MI_XmlStr(p,end," height=\"",tmp,sizeof(tmp))){ p=end+1; continue; } f->h=atoi(tmp);
-        if(f->w<1||f->h<1){ p=end+1; continue; }
-        if(MI_XmlStr(p,end," frameX=\"",tmp,sizeof(tmp))) f->fx=atoi(tmp);
-        if(MI_XmlStr(p,end," frameY=\"",tmp,sizeof(tmp))) f->fy=atoi(tmp);
-        n++; p=end+1;
-    } return n;
+
+/* ------------------------------------------------------------------------- */
+/* Arquivos e diretorios                                                     */
+/* ------------------------------------------------------------------------- */
+
+static long MI_FileSize(const char *path)
+{
+    FILE *file = fopen(path, "rb");
+    long size;
+    if (file == NULL) return 0;
+    if (fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return 0;
+    }
+    size = ftell(file);
+    fclose(file);
+    return size > 0 ? size : 0;
 }
-static char MI_RestOk(const char* s){
-    if(s[0]==0||s[0]=='.') return 1;
-    for(;*s;s++) if(*s<'0'||*s>'9') return 0;
+
+static char *MI_ReadFile(const char *path, long *outSize, long maxSize)
+{
+    FILE *file;
+    long size;
+    char *buffer;
+
+    if (outSize != NULL) *outSize = 0;
+    file = fopen(path, "rb");
+    if (file == NULL) return NULL;
+    if (fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return NULL;
+    }
+    size = ftell(file);
+    if (size <= 0 || size > maxSize || fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        return NULL;
+    }
+
+    buffer = (char *)malloc((size_t)size + 1u);
+    if (buffer == NULL) {
+        fclose(file);
+        return NULL;
+    }
+    if (fread(buffer, 1, (size_t)size, file) != (size_t)size) {
+        free(buffer);
+        fclose(file);
+        return NULL;
+    }
+    fclose(file);
+    buffer[size] = '\0';
+    if (outSize != NULL) *outSize = size;
+    return buffer;
+}
+
+static char MI_CopyFile(const char *source, const char *destination, long *bytes)
+{
+    FILE *in;
+    FILE *out;
+    unsigned char buffer[MI_COPY_BUFFER];
+    size_t count;
+    long total = 0;
+    int ok = 1;
+
+    if (source == NULL || destination == NULL || !FileExists(source)) return 0;
+    if (strcmp(source, destination) == 0) return 1;
+    if (!MI_EnsureParent(destination)) return 0;
+
+    in = fopen(source, "rb");
+    if (in == NULL) return 0;
+    out = fopen(destination, "wb");
+    if (out == NULL) {
+        fclose(in);
+        return 0;
+    }
+
+    while ((count = fread(buffer, 1, sizeof(buffer), in)) > 0) {
+        if (fwrite(buffer, 1, count, out) != count) {
+            ok = 0;
+            break;
+        }
+        if (total <= LONG_MAX - (long)count) total += (long)count;
+        else {
+            ok = 0;
+            break;
+        }
+    }
+    if (ferror(in)) ok = 0;
+    if (fclose(in) != 0) ok = 0;
+    if (fclose(out) != 0) ok = 0;
+
+    if (!ok) {
+        (void)remove(destination);
+        return 0;
+    }
+    if (bytes != NULL) *bytes += total;
     return 1;
 }
-static char MI_ParseCharInfo(const char* jsonPath, const char* fallback, MI_CharInfo* out){
-    memset(out,0,sizeof(*out));
-    strncpy(out->healthicon,fallback,31); out->healthicon[31]=0;
-    strncpy(out->imageBase,fallback,63); out->imageBase[63]=0;
-    long sz=0; char* buf=MI_ReadFile(jsonPath,&sz,1024*1024); if(!buf) return 0;
-    yyjson_doc* doc=yyjson_read(buf,(size_t)sz,0); free(buf); if(!doc) return 0;
-    yyjson_val* root=yyjson_doc_get_root(doc);
-    yyjson_val* jh=yyjson_obj_get(root,"healthicon");
-    if(yyjson_is_str(jh)){ const char* s=yyjson_get_str(jh); if(s&&*s&&MI_SafeName(s)){ strncpy(out->healthicon,s,31); } }
-    yyjson_val* ji=yyjson_obj_get(root,"image");
-    if(yyjson_is_str(ji)){ const char* b=yyjson_get_str(ji); if(b&&*b){ const char* s1=strrchr(b,'/'); const char* s2=strrchr(b,'\\'); const char* s=(s1>s2)?s1:s2; b=s?s+1:b; if(*b&&MI_SafeName(b)){ strncpy(out->imageBase,b,63); } } }
-    yyjson_val* ja=yyjson_obj_get(root,"animations");
-    if(yyjson_is_arr(ja)){ size_t idx,max; yyjson_val* a; yyjson_arr_foreach(ja,idx,max,a){
-        if(out->animCount>=MI_MAX_CHARANIMS) break;
-        yyjson_val *jr=yyjson_obj_get(a,"anim"), *jn=yyjson_obj_get(a,"name");
-        if(!yyjson_is_str(jr)||!yyjson_is_str(jn)) continue;
-        const char* r=yyjson_get_str(jr); const char* n=yyjson_get_str(jn);
-        if(!r||!*r||!n||!*n||strlen(n)>31) continue;
-        MI_CharAnim* o=&out->anims[out->animCount];
-        strncpy(o->role,r,15); o->role[15]=0; strncpy(o->sprite,n,63); o->sprite[63]=0; o->idxCount=0;
-        yyjson_val* jidx=yyjson_obj_get(a,"indices");
-        if(yyjson_is_arr(jidx)){ size_t k,km; yyjson_val* v; yyjson_arr_foreach(jidx,k,km,v) if(o->idxCount<MI_MAX_ANIMFRAMES&&yyjson_is_int(v)){ int val=yyjson_get_int(v); if(val>=0) o->idx[o->idxCount++]=val; } }
-        out->animCount++;
-    }}
-    yyjson_doc_free(doc); return 1;
+
+static int MI_IsDirectoryPath(const char *path)
+{
+    return path != NULL && DirectoryExists(path);
 }
-static void MI_ChartActors(const char* jsonPath, char actors[][32], int* count){
-    long sz=0; char* buf=MI_ReadFile(jsonPath,&sz,8*1024*1024); if(!buf) return;
-    yyjson_doc* doc=yyjson_read(buf,(size_t)sz,0); free(buf); if(!doc) return;
-    yyjson_val* root=yyjson_doc_get_root(doc);
-    yyjson_val* js=yyjson_obj_get(root,"song"); if(!js||!yyjson_is_obj(js)) js=root;
-    const char* keys[3]={"player1","player2","stage"};
-    for(int k=0;k<3;k++){ yyjson_val* j=yyjson_obj_get(js,keys[k]); if(!yyjson_is_str(j)) continue;
-        const char* val=yyjson_get_str(j); if(!val||!*val||!MI_SafeName(val)) continue;
-        char dup=0; for(int i=0;i<*count;i++) if(MI_CiEq(actors[i],val)){ dup=1; break; }
-        if(!dup&&*count<64){ strncpy(actors[*count],val,31); actors[*count][31]=0; (*count)++; }
+
+static FilePathList MI_ListDirectories(const char *path)
+{
+    return LoadDirectoryFilesEx(path, "DIR", false);
+}
+
+static FilePathList MI_ListEntries(const char *path)
+{
+    return LoadDirectoryFilesEx(path, NULL, false);
+}
+
+static int MI_CopyTree(const char *source, const char *destination,
+                       long *bytes, int *copiedFiles, int depth)
+{
+    FilePathList dirs;
+    FilePathList entries;
+    int ok = 1;
+
+    if (depth > MI_MAX_DEPTH) return 0;
+    if (!MI_EnsureDirectory(destination)) return 0;
+
+    dirs = MI_ListDirectories(source);
+    for (unsigned i = 0; i < dirs.count; ++i) {
+        char childDst[MI_PATH_MAX];
+        const char *base = MI_BaseName(dirs.paths[i]);
+        if (!MI_IsSafeComponent(base)) continue;
+        if (!MI_Join(childDst, sizeof(childDst), destination, base) ||
+            !MI_CopyTree(dirs.paths[i], childDst, bytes, copiedFiles, depth + 1)) {
+            ok = 0;
+        }
+    }
+    UnloadDirectoryFiles(dirs);
+
+    entries = MI_ListEntries(source);
+    for (unsigned i = 0; i < entries.count; ++i) {
+        char childDst[MI_PATH_MAX];
+        const char *base = MI_BaseName(entries.paths[i]);
+        if (MI_IsDirectoryPath(entries.paths[i]) || !MI_IsSafeComponent(base)) continue;
+        if (!MI_Join(childDst, sizeof(childDst), destination, base) ||
+            !MI_CopyFile(entries.paths[i], childDst, bytes)) {
+            ok = 0;
+        } else if (copiedFiles != NULL) {
+            ++*copiedFiles;
+        }
+    }
+    UnloadDirectoryFiles(entries);
+    return ok;
+}
+
+static long MI_CountTreeBytes(const char *path, int depth)
+{
+    FilePathList dirs;
+    FilePathList entries;
+    long total = 0;
+    if (depth > MI_MAX_DEPTH) return 0;
+
+    entries = MI_ListEntries(path);
+    for (unsigned i = 0; i < entries.count; ++i) {
+        if (!MI_IsDirectoryPath(entries.paths[i])) {
+            long size = MI_FileSize(entries.paths[i]);
+            if (size > 0 && total <= LONG_MAX - size) total += size;
+        }
+    }
+    UnloadDirectoryFiles(entries);
+
+    dirs = MI_ListDirectories(path);
+    for (unsigned i = 0; i < dirs.count; ++i) {
+        long size = MI_CountTreeBytes(dirs.paths[i], depth + 1);
+        if (size > 0 && total <= LONG_MAX - size) total += size;
+    }
+    UnloadDirectoryFiles(dirs);
+    return total;
+}
+
+static int MI_RemoveTree(const char *path, int depth, int *removedFiles)
+{
+    FilePathList entries;
+    FilePathList dirs;
+    int ok = 1;
+
+    if (depth > MI_MAX_DEPTH) return 0;
+
+    entries = MI_ListEntries(path);
+    for (unsigned i = 0; i < entries.count; ++i) {
+        if (MI_IsDirectoryPath(entries.paths[i])) continue;
+        if (remove(entries.paths[i]) == 0) {
+            if (removedFiles != NULL) ++*removedFiles;
+        } else {
+            ok = 0;
+        }
+    }
+    UnloadDirectoryFiles(entries);
+
+    dirs = MI_ListDirectories(path);
+    for (unsigned i = 0; i < dirs.count; ++i) {
+        if (!MI_RemoveTree(dirs.paths[i], depth + 1, removedFiles)) ok = 0;
+        if (MI_RMDIR(dirs.paths[i]) != 0 && DirectoryExists(dirs.paths[i])) ok = 0;
+    }
+    UnloadDirectoryFiles(dirs);
+    return ok;
+}
+
+/* ------------------------------------------------------------------------- */
+/* JSON                                                                       */
+/* ------------------------------------------------------------------------- */
+
+static const char *MI_JsonString(yyjson_val *object, const char *key)
+{
+    yyjson_val *value;
+    if (object == NULL || !yyjson_is_obj(object)) return NULL;
+    value = yyjson_obj_get(object, key);
+    if (!yyjson_is_str(value)) return NULL;
+    return yyjson_get_str(value);
+}
+
+static void MI_AddName(MI_NameList *list, const char *name)
+{
+    char candidate[64];
+    size_t len;
+    if (list == NULL || name == NULL || !MI_IsSafeComponent(name)) return;
+    len = strlen(name);
+    if (len == 0 || len >= sizeof(candidate)) return;
+    memcpy(candidate, name, len + 1);
+
+    for (int i = 0; i < list->count; ++i) {
+        if (MI_CaseEqual(list->names[i], candidate)) return;
+    }
+    if (list->count < MI_MAX_ICON_NAMES) {
+        memcpy(list->names[list->count], candidate, len + 1);
+        ++list->count;
+    }
+}
+
+static void MI_ParseChartActors(const char *chartPath, MI_NameList *names)
+{
+    long size = 0;
+    char *buffer = MI_ReadFile(chartPath, &size, 8L * 1024L * 1024L);
+    yyjson_doc *doc;
+    yyjson_val *root;
+    yyjson_val *song;
+    static const char *keys[] = {"player1", "player2"};
+
+    if (buffer == NULL) return;
+    doc = yyjson_read(buffer, (size_t)size, 0);
+    free(buffer);
+    if (doc == NULL) return;
+
+    root = yyjson_doc_get_root(doc);
+    song = yyjson_obj_get(root, "song");
+    if (!yyjson_is_obj(song)) song = root;
+
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); ++i) {
+        const char *value = MI_JsonString(song, keys[i]);
+        MI_AddName(names, value);
     }
     yyjson_doc_free(doc);
 }
-static char MI_IconFor(const char* srcMod, const char* modIcons, const char* key, const char* name, ModImportStats* st){
-    char cand[4][300];
-    snprintf(cand[0],sizeof(cand[0]),"%s/images/icons/icon-%s.png",srcMod,key);
-    snprintf(cand[1],sizeof(cand[1]),"%s/images/icons/icon-%s.png",srcMod,name);
-    snprintf(cand[2],sizeof(cand[2]),"%s/images/icons/%s.png",srcMod,key);
-    snprintf(cand[3],sizeof(cand[3]),"%s/images/icons/%s.png",srcMod,name);
-    char dst[300]; snprintf(dst,sizeof(dst),"%s/%s.png",modIcons,name);
-    for(int i=0;i<4;i++) if(MI_CopyFast(cand[i],dst,&st->bytes)){ st->icons++; return 1; }
-    return 0;
-}
-static int MI_WriteAnimsetCached(const MI_CharInfo* info, const char* xmlPath, const char* animsetPath){
-    long xsize=0; char* xbuf=MI_ReadFile(xmlPath,&xsize,4*1024*1024); if(!xbuf) return 0;
-    MI_XmlFrame* frames=malloc(sizeof(MI_XmlFrame)*MI_MAX_XMLFRAMES);
-    if(!frames){ free(xbuf); return 0; }
-    int nf=MI_XmlFrames(xbuf,frames,MI_MAX_XMLFRAMES); free(xbuf);
-    if(nf<1||info->animCount<1){ free(frames); return 0; }
-    static short picked[MI_MAX_CHARANIMS][MI_MAX_ANIMFRAMES]; static short pickCount[MI_MAX_CHARANIMS];
-    int kept=0;
-    for(int a=0;a<info->animCount;a++){ pickCount[a]=0; size_t pl=strlen(info->anims[a].sprite); short all[MI_MAX_ANIMFRAMES]; int nall=0;
-        for(int i=0;i<nf&&nall<MI_MAX_ANIMFRAMES;i++){ if(strncmp(frames[i].name,info->anims[a].sprite,pl)!=0) continue; if(!MI_RestOk(frames[i].name+pl)) continue; all[nall++]=(short)i; }
-        if(nall==0) continue;
-        if(info->anims[a].idxCount>0){ for(int k=0;k<info->anims[a].idxCount&&pickCount[a]<MI_MAX_ANIMFRAMES;k++){ int w=info->anims[a].idx[k]; if(w>=0&&w<nall) picked[a][pickCount[a]++]=all[w]; }
-        } else { for(int k=0;k<nall;k++) picked[a][pickCount[a]++]=all[k]; }
-        if(pickCount[a]>0) kept++;
+
+static void MI_ParseWeekIcons(const char *weekPath, MI_NameList *names)
+{
+    long size = 0;
+    char *buffer = MI_ReadFile(weekPath, &size, 2L * 1024L * 1024L);
+    yyjson_doc *doc;
+    yyjson_val *root;
+    yyjson_val *songs;
+    yyjson_val *weekCharacters;
+
+    if (buffer == NULL) return;
+    doc = yyjson_read(buffer, (size_t)size, 0);
+    free(buffer);
+    if (doc == NULL) return;
+
+    root = yyjson_doc_get_root(doc);
+    songs = yyjson_obj_get(root, "songs");
+    if (yyjson_is_arr(songs)) {
+        size_t i, max;
+        yyjson_val *row;
+        yyjson_arr_foreach(songs, i, max, row) {
+            if (!yyjson_is_arr(row) || yyjson_arr_size(row) < 2) continue;
+            {
+                yyjson_val *icon = yyjson_arr_get(row, 1);
+                if (yyjson_is_str(icon)) MI_AddName(names, yyjson_get_str(icon));
+            }
+        }
     }
-    if(kept==0){ free(frames); return 0; }
-    FILE* o=fopen(animsetPath,"wb"); if(!o){ free(frames); return 0; }
-    int written=0; fwrite(&kept,sizeof(int),1,o);
-    for(int a=0;a<info->animCount;a++){ if(pickCount[a]==0) continue;
-        int nl=(int)strlen(info->anims[a].sprite); int dc=(int)pickCount[a]*6;
-        fwrite(&nl,sizeof(int),1,o); fwrite(info->anims[a].sprite,1,(size_t)nl,o); fwrite(&dc,sizeof(int),1,o);
-        for(int k=0;k<pickCount[a];k++){ MI_XmlFrame* fr=frames+picked[a][k]; MI_FrameOut fo={fr->x,fr->y,fr->w,fr->h,fr->fx,fr->fy}; fwrite(&fo,sizeof(fo),1,o); }
-        written++;
+
+    weekCharacters = yyjson_obj_get(root, "weekCharacters");
+    if (yyjson_is_arr(weekCharacters)) {
+        size_t i, max;
+        yyjson_val *value;
+        yyjson_arr_foreach(weekCharacters, i, max, value) {
+            if (yyjson_is_str(value)) MI_AddName(names, yyjson_get_str(value));
+        }
     }
-    fclose(o); free(frames); if(written==0) remove(animsetPath); return written;
+    yyjson_doc_free(doc);
 }
 
-char ModImport_Run(const char* srcMod, const char* dstRoot, const char* modName, char* msg, size_t msgSize, ModImportStats* stats){
-    ModImportStats st; memset(&st,0,sizeof(st));
-    if(msg&&msgSize) msg[0]=0; if(stats) memset(stats,0,sizeof(*stats));
-    if(!srcMod||!dstRoot||!modName){ if(msg) snprintf(msg,msgSize,"import: caminho invalido"); return 0; }
-    char mod[64]; MI_SanitizeMod(mod,sizeof(mod),modName);
-    char dst[300]; snprintf(dst,sizeof(dst),"%s/%s",dstRoot,mod);
-    char srcSongs[300],srcData[300]; snprintf(srcSongs,sizeof(srcSongs),"%s/songs",srcMod); snprintf(srcData,sizeof(srcData),"%s/data",srcMod);
-    if(!DirectoryExists(srcSongs)){ if(msg) snprintf(msg,msgSize,"import: sem songs/ em %s",srcMod); return 0; }
-    { char d[300]; snprintf(d,sizeof(d),"%s/songs",dst); if(MakeDirectory(d)!=0){ if(msg) snprintf(msg,msgSize,"import: nao criou %s",d); return 0; }
-      snprintf(d,sizeof(d),"%s/weeks",dst); MakeDirectory(d); snprintf(d,sizeof(d),"%s/stages",dst); MakeDirectory(d);
-      snprintf(d,sizeof(d),"%s/images/characters",dst); MakeDirectory(d); snprintf(d,sizeof(d),"%s/characters",dst); MakeDirectory(d);
-      snprintf(d,sizeof(d),"%s/images/icons",dst); MakeDirectory(d);
+static int MI_ParseCharacterJson(const char *jsonPath, const char *fallbackName,
+                                 MI_CharInfo *out)
+{
+    long size = 0;
+    char *buffer;
+    yyjson_doc *doc;
+    yyjson_val *root;
+    yyjson_val *animations;
+    const char *healthicon;
+    const char *image;
+
+    if (out == NULL) return 0;
+    memset(out, 0, sizeof(*out));
+    if (fallbackName != NULL) {
+        MI_CopyString(out->healthicon, sizeof(out->healthicon), fallbackName);
+        (void)snprintf(out->imagePath, sizeof(out->imagePath), "characters/%s", fallbackName);
     }
-    char iconNames[64][32]; int iconNameCount=0;
-    FilePathList songs=LoadDirectoryFilesEx(srcSongs,"DIR",false);
-    for(unsigned i=0;i<songs.count;i++){
-        const char* songBase=MI_Base(songs.paths[i]); if(!MI_SafeName(songBase)) continue;
-        char dstSong[300]; snprintf(dstSong,sizeof(dstSong),"%s/songs/%s",dst,songBase);
-        const char* instExts[3]={"Inst.ogg","Inst.mp3","Inst.wav"};
-        char instSrc[300]={0}, dstInst[300]={0}; char hasInst=0;
-        for(int e=0;e<3;e++){ snprintf(instSrc,sizeof(instSrc),"%s/%s",songs.paths[i],instExts[e]); if(FileExists(instSrc)){ hasInst=1; break; } }
-        if(!hasInst) continue;
-        MakeDirectory(dstSong);
-        snprintf(dstInst,sizeof(dstInst),"%s/%s",dstSong,MI_Base(instSrc));
-        if(!MI_CopyFast(instSrc,dstInst,&st.bytes)) continue;
-        const char* vox[4]={"Voices.ogg","Voices.mp3","Voices-Player.ogg","Voices-Opponent.ogg"};
-        for(int v=0;v<4;v++){ char sv[300],dv[300]; snprintf(sv,sizeof(sv),"%s/%s",songs.paths[i],vox[v]); snprintf(dv,sizeof(dv),"%s/%s",dstSong,vox[v]); MI_CopyFast(sv,dv,&st.bytes); }
-        char dataDir[300]={0};
-        FilePathList datas=LoadDirectoryFilesEx(srcData,"DIR",false);
-        for(unsigned d=0;d<datas.count;d++) if(MI_CiEq(MI_Base(datas.paths[d]),songBase)){ strncpy(dataDir,datas.paths[d],sizeof(dataDir)-1); break; }
-        UnloadDirectoryFiles(datas);
-        int chartsHere=0;
-        const char* chartDirs[3]={dataDir, songs.paths[i], NULL};
-        char chartsSub[300]; snprintf(chartsSub,sizeof(chartsSub),"%s/charts",songs.paths[i]);
-        if(DirectoryExists(chartsSub)) chartDirs[2]=chartsSub;
-        for(int cd=0; cd<3; cd++){
-            if(!chartDirs[cd]||!chartDirs[cd][0]||!DirectoryExists(chartDirs[cd])) continue;
-            FilePathList charts=LoadDirectoryFilesEx(chartDirs[cd],".json",false);
-            for(unsigned c=0;c<charts.count;c++){
-                char stem[128]; MI_Stem(charts.paths[c],stem,sizeof(stem));
-                if(MI_CiEq(stem,"events")){ st.skippedEvents++; continue; }
-                const char* cb=MI_Base(charts.paths[c]); if(!MI_SafeName(cb)) continue;
-                char dc[300]; snprintf(dc,sizeof(dc),"%s/%s",dstSong,cb);
-                if(FileExists(dc)) continue;
-                if(MI_CopyFast(charts.paths[c],dc,&st.bytes)){ chartsHere++; st.charts++; MI_ChartActors(dc,iconNames,&iconNameCount); }
+
+    buffer = MI_ReadFile(jsonPath, &size, 1024L * 1024L);
+    if (buffer == NULL) return 0;
+    doc = yyjson_read(buffer, (size_t)size, 0);
+    free(buffer);
+    if (doc == NULL) return 0;
+    root = yyjson_doc_get_root(doc);
+    if (!yyjson_is_obj(root)) {
+        yyjson_doc_free(doc);
+        return 0;
+    }
+
+    healthicon = MI_JsonString(root, "healthicon");
+    if (healthicon != NULL && MI_IsSafeComponent(healthicon))
+        (void)snprintf(out->healthicon, sizeof(out->healthicon), "%s", healthicon);
+
+    image = MI_JsonString(root, "image");
+    if (image != NULL && image[0] != '\0' && strstr(image, "..") == NULL &&
+        strchr(image, '\\') == NULL) {
+        const char *normalized = image;
+        size_t len;
+        if (strncmp(normalized, "assets/", 7) == 0) normalized += 7;
+        if (strncmp(normalized, "images/", 7) == 0) normalized += 7;
+        len = strlen(normalized);
+        if (len < sizeof(out->imagePath)) {
+            memcpy(out->imagePath, normalized, len + 1);
+            {
+                char *dot = strrchr(out->imagePath, '.');
+                if (dot != NULL) *dot = '\0';
             }
-            UnloadDirectoryFiles(charts);
         }
-        if(dataDir[0]!=0){ FilePathList luas=LoadDirectoryFilesEx(dataDir,".lua",false); st.skippedLua+=(int)luas.count; UnloadDirectoryFiles(luas); }
-        if(chartsHere>0) st.songs++;
     }
-    UnloadDirectoryFiles(songs);
-    if(st.songs==0){ if(msg) snprintf(msg,msgSize,"import: nenhuma musica com Inst.*+chart em %s",srcMod); return 0; }
-    { char seen[32][64]; int seenCount=0; const char* subs[4]={"weeks/main","weeks","weeks/extra","weeks/joke"};
-      for(int s=0;s<4;s++){ char wd[300]; snprintf(wd,sizeof(wd),"%s/%s",srcMod,subs[s]); if(!DirectoryExists(wd)) continue;
-        FilePathList wj=LoadDirectoryFilesEx(wd,".json",false);
-        for(unsigned j=0;j<wj.count;j++){ char stem[128]; MI_Stem(wj.paths[j],stem,sizeof(stem)); if(!MI_SafeName(stem)) continue;
-          char dup=0; for(int k=0;k<seenCount;k++) if(MI_CiEq(seen[k],stem)){ dup=1; break; } if(dup||seenCount>=32) continue;
-          strncpy(seen[seenCount],stem,63); seen[seenCount][63]=0; seenCount++;
-          char dw[300]; snprintf(dw,sizeof(dw),"%s/weeks/%s",dst,MI_Base(wj.paths[j])); if(MI_CopyFast(wj.paths[j],dw,&st.bytes)) st.weeks++;
-        } UnloadDirectoryFiles(wj);
-      }
-    }
-    { char sd[300]; snprintf(sd,sizeof(sd),"%s/stages",srcMod);
-      if(DirectoryExists(sd)){
-        FilePathList sl=LoadDirectoryFilesEx(sd,".lua",false);
-        for(unsigned j=0;j<sl.count;j++){ char stem[128]; MI_Stem(sl.paths[j],stem,sizeof(stem)); if(!MI_SafeName(stem)) continue;
-          char dl[300]; snprintf(dl,sizeof(dl),"%s/stages/%s",dst,MI_Base(sl.paths[j])); if(MI_CopyFast(sl.paths[j],dl,&st.bytes)) st.stages++;
-          char sj[300],dj[300]; snprintf(sj,sizeof(sj),"%s/%s.json",sd,stem); if(FileExists(sj)){ snprintf(dj,sizeof(dj),"%s/stages/%s.json",dst,stem); MI_CopyFast(sj,dj,&st.bytes); }
-        } UnloadDirectoryFiles(sl);
-        FilePathList sj2=LoadDirectoryFilesEx(sd,".json",false);
-        for(unsigned j=0;j<sj2.count;j++){ char stem[128]; MI_Stem(sj2.paths[j],stem,sizeof(stem)); if(!MI_SafeName(stem)) continue;
-          char sl2[300]; snprintf(sl2,sizeof(sl2),"%s/%s.lua",sd,stem); if(FileExists(sl2)) continue;
-          char dj[300]; snprintf(dj,sizeof(dj),"%s/stages/%s",dst,MI_Base(sj2.paths[j])); if(MI_CopyFast(sj2.paths[j],dj,&st.bytes)) st.stages++;
-        } UnloadDirectoryFiles(sj2);
-      }
-    }
-    { char id[300]; snprintf(id,sizeof(id),"%s/images",srcMod);
-      if(DirectoryExists(id)){
-        FilePathList all=LoadDirectoryFilesEx(id,NULL,false);
-        for(unsigned j=0;j<all.count;j++){ if(DirectoryExists(all.paths[j])) continue; const char* b=MI_Base(all.paths[j]); if(!MI_SafeName(b)||!MI_EndsWithI(b,".png")) continue;
-          char di[300]; snprintf(di,sizeof(di),"%s/images/%s",dst,b); if(MI_CopyFast(all.paths[j],di,&st.bytes)) st.images++; }
-        UnloadDirectoryFiles(all);
-        char cd[300]; snprintf(cd,sizeof(cd),"%s/images/characters",srcMod);
-        if(DirectoryExists(cd)){ FilePathList ch=LoadDirectoryFilesEx(cd,NULL,false);
-          for(unsigned j=0;j<ch.count;j++){ if(DirectoryExists(ch.paths[j])) continue; const char* b=MI_Base(ch.paths[j]); if(!MI_SafeName(b)||(!MI_EndsWithI(b,".png")&&!MI_EndsWithI(b,".xml"))) continue;
-            char di[300]; snprintf(di,sizeof(di),"%s/images/characters/%s",dst,b); if(MI_CopyFast(ch.paths[j],di,&st.bytes)) st.images++; }
-          UnloadDirectoryFiles(ch);
+
+    animations = yyjson_obj_get(root, "animations");
+    if (yyjson_is_arr(animations)) {
+        size_t i, max;
+        yyjson_val *entry;
+        yyjson_arr_foreach(animations, i, max, entry) {
+            const char *role;
+            const char *prefix;
+            MI_CharAnim *anim;
+            yyjson_val *indices;
+            if (out->animCount >= MI_MAX_CHAR_ANIMS || !yyjson_is_obj(entry)) break;
+            role = MI_JsonString(entry, "anim");
+            prefix = MI_JsonString(entry, "name");
+            if (role == NULL || role[0] == '\0' || prefix == NULL || prefix[0] == '\0') continue;
+            if (strlen(prefix) >= sizeof(out->anims[0].prefix) ||
+                strlen(role) >= sizeof(out->anims[0].role)) continue;
+
+            anim = &out->anims[out->animCount];
+            (void)snprintf(anim->role, sizeof(anim->role), "%s", role);
+            (void)snprintf(anim->prefix, sizeof(anim->prefix), "%s", prefix);
+            indices = yyjson_obj_get(entry, "indices");
+            if (yyjson_is_arr(indices)) {
+                size_t k, kmax;
+                yyjson_val *indexValue;
+                yyjson_arr_foreach(indices, k, kmax, indexValue) {
+                    if (anim->indexCount >= MI_MAX_ANIM_FRAMES) break;
+                    if (yyjson_is_int(indexValue)) {
+                        int64_t index = yyjson_get_int(indexValue);
+                        if (index >= 0 && index <= INT_MAX)
+                            anim->indices[anim->indexCount++] = (int32_t)index;
+                    }
+                }
+            }
+            ++out->animCount;
         }
-      }
     }
-    { char modIcons[300],modChars[300],srcChars[300]; snprintf(modIcons,sizeof(modIcons),"%s/images/icons",dst); snprintf(modChars,sizeof(modChars),"%s/images/characters",dst); snprintf(srcChars,sizeof(srcChars),"%s/images/characters",srcMod);
-      char cd[300]; snprintf(cd,sizeof(cd),"%s/characters",srcMod);
-      if(DirectoryExists(cd)){ FilePathList ch=LoadDirectoryFilesEx(cd,".json",false);
-        for(unsigned j=0;j<ch.count;j++){ char stem[128]; MI_Stem(ch.paths[j],stem,sizeof(stem)); if(!MI_SafeName(stem)) continue;
-          char dc[300]; snprintf(dc,sizeof(dc),"%s/characters/%s",dst,MI_Base(ch.paths[j])); if(!MI_CopyFast(ch.paths[j],dc,&st.bytes)) continue;
-          st.characters++;
-          char dup=0; for(int k=0;k<iconNameCount;k++) if(MI_CiEq(iconNames[k],stem)){ dup=1; break; }
-          if(!dup&&iconNameCount<64){ strncpy(iconNames[iconNameCount],stem,31); iconNames[iconNameCount][31]=0; iconNameCount++; }
-          MI_CharInfo info; if(MI_ParseCharInfo(dc,stem,&info)){
-            char sx[300],sa[300]; snprintf(sx,sizeof(sx),"%s/%s.xml",srcChars,info.imageBase); if(!FileExists(sx)) snprintf(sx,sizeof(sx),"%s/%s.xml",srcMod,info.imageBase);
-            snprintf(sa,sizeof(sa),"%s/%s.animset",modChars,stem);
-            if(MI_WriteAnimsetCached(&info,sx,sa)>0){ st.animsets++; st.bytes+=MI_FileSize(sa); }
-          }
-        } UnloadDirectoryFiles(ch);
-      }
-      for(int k=0;k<iconNameCount;k++){ char hpath[300]; snprintf(hpath,sizeof(hpath),"%s/characters/%s.json",dst,iconNames[k]);
-        MI_CharInfo tmp; char h[32]; strncpy(h,iconNames[k],31); h[31]=0;
-        if(MI_ParseCharInfo(hpath,iconNames[k],&tmp)) strncpy(h,tmp.healthicon,31);
-        MI_IconFor(srcMod,modIcons,h,iconNames[k],&st);
-      }
-    }
-    if(stats) *stats=st;
-    if(msg) snprintf(msg,msgSize,"import %s: %d musicas, %d charts, %d weeks, %d stages, %d imgs, %d chars, %d animsets, %d icones (%ld KB)",mod,st.songs,st.charts,st.weeks,st.stages,st.images,st.characters,st.animsets,st.icons,st.bytes/1024);
+
+    yyjson_doc_free(doc);
     return 1;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Sparrow XML -> .animset                                                    */
+/* ------------------------------------------------------------------------- */
+
+static int MI_ParseInteger(const char *text, int32_t *out)
+{
+    char *end;
+    long value;
+    if (text == NULL || text[0] == '\0' || out == NULL) return 0;
+    errno = 0;
+    value = strtol(text, &end, 10);
+    if (end == text || *end != '\0' || errno == ERANGE ||
+        value < INT32_MIN || value > INT32_MAX) return 0;
+    *out = (int32_t)value;
+    return 1;
+}
+
+static int MI_XmlAttribute(const char *tagStart, const char *tagEnd,
+                           const char *attribute, char *out, size_t outSize)
+{
+    const char *p = tagStart;
+    size_t attrLen;
+    if (out == NULL || outSize == 0 || tagStart == NULL || tagEnd == NULL ||
+        attribute == NULL) return 0;
+    out[0] = '\0';
+    attrLen = strlen(attribute);
+
+    while (p < tagEnd && *p != '<') ++p;
+    if (p < tagEnd) ++p;
+    while (p < tagEnd && !isspace((unsigned char)*p) && *p != '>') ++p;
+
+    while (p < tagEnd) {
+        const char *nameStart;
+        size_t nameLen;
+        char quote;
+        size_t valueLen;
+
+        while (p < tagEnd && (isspace((unsigned char)*p) || *p == '/')) ++p;
+        if (p >= tagEnd || *p == '>') break;
+        nameStart = p;
+        while (p < tagEnd && !isspace((unsigned char)*p) && *p != '=' && *p != '>') ++p;
+        nameLen = (size_t)(p - nameStart);
+        while (p < tagEnd && isspace((unsigned char)*p)) ++p;
+        if (p >= tagEnd || *p != '=') {
+            while (p < tagEnd && *p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') ++p;
+            continue;
+        }
+        ++p;
+        while (p < tagEnd && isspace((unsigned char)*p)) ++p;
+        if (p >= tagEnd || (*p != '\'' && *p != '"')) continue;
+        quote = *p++;
+        {
+            const char *valueStart = p;
+            while (p < tagEnd && *p != quote) ++p;
+            valueLen = (size_t)(p - valueStart);
+            if (nameLen == attrLen && memcmp(nameStart, attribute, attrLen) == 0) {
+                if (valueLen >= outSize) valueLen = outSize - 1;
+                memcpy(out, valueStart, valueLen);
+                out[valueLen] = '\0';
+                return valueLen > 0;
+            }
+        }
+        if (p < tagEnd) ++p;
+    }
+    return 0;
+}
+
+static int MI_ParseXmlFrames(const char *xml, MI_XmlFrame *frames, int capacity)
+{
+    const char *p = xml;
+    int count = 0;
+    if (xml == NULL || frames == NULL || capacity <= 0) return 0;
+
+    while (count < capacity) {
+        const char *tag = strstr(p, "<SubTexture");
+        const char *tagEnd;
+        char value[128];
+        MI_XmlFrame frame;
+
+        if (tag == NULL) break;
+        if (!(isspace((unsigned char)tag[11]) || tag[11] == '>' || tag[11] == '/')) {
+            p = tag + 11;
+            continue;
+        }
+        tagEnd = strchr(tag, '>');
+        if (tagEnd == NULL) break;
+        memset(&frame, 0, sizeof(frame));
+
+        if (!MI_XmlAttribute(tag, tagEnd, "name", frame.name, sizeof(frame.name)) ||
+            !MI_XmlAttribute(tag, tagEnd, "x", value, sizeof(value)) ||
+            !MI_ParseInteger(value, &frame.x) ||
+            !MI_XmlAttribute(tag, tagEnd, "y", value, sizeof(value)) ||
+            !MI_ParseInteger(value, &frame.y) ||
+            !MI_XmlAttribute(tag, tagEnd, "width", value, sizeof(value)) ||
+            !MI_ParseInteger(value, &frame.w) ||
+            !MI_XmlAttribute(tag, tagEnd, "height", value, sizeof(value)) ||
+            !MI_ParseInteger(value, &frame.h) || frame.w <= 0 || frame.h <= 0) {
+            p = tagEnd + 1;
+            continue;
+        }
+
+        if (MI_XmlAttribute(tag, tagEnd, "frameX", value, sizeof(value)))
+            (void)MI_ParseInteger(value, &frame.fx);
+        if (MI_XmlAttribute(tag, tagEnd, "frameY", value, sizeof(value)))
+            (void)MI_ParseInteger(value, &frame.fy);
+
+        frames[count++] = frame;
+        p = tagEnd + 1;
+    }
+    return count;
+}
+
+static int MI_FrameSuffix(const char *frameName, const char *prefix, uint64_t *order)
+{
+    const char *suffix;
+    uint64_t value = 0;
+    if (strncmp(frameName, prefix, strlen(prefix)) != 0) return 0;
+    suffix = frameName + strlen(prefix);
+    if (*suffix == '\0') {
+        *order = 0;
+        return 1;
+    }
+    if (*suffix == '.') ++suffix;
+    if (*suffix == '\0') return 0;
+    for (; *suffix; ++suffix) {
+        unsigned digit;
+        if (*suffix < '0' || *suffix > '9') return 0;
+        digit = (unsigned)(*suffix - '0');
+        if (value > (UINT64_MAX - digit) / 10u) return 0;
+        value = value * 10u + digit;
+    }
+    *order = value;
+    return 1;
+}
+
+static int MI_CompareFrameCandidate(const void *left, const void *right)
+{
+    const MI_FrameCandidate *a = (const MI_FrameCandidate *)left;
+    const MI_FrameCandidate *b = (const MI_FrameCandidate *)right;
+    if (a->order < b->order) return -1;
+    if (a->order > b->order) return 1;
+    return a->frameIndex < b->frameIndex ? -1 : a->frameIndex > b->frameIndex;
+}
+
+static int MI_WriteExact(FILE *file, const void *data, size_t size)
+{
+    return size == 0 || fwrite(data, 1, size, file) == size;
+}
+
+static int MI_WriteAnimset(const MI_CharInfo *info, const char *xmlPath,
+                           const char *animsetPath)
+{
+    long xmlSize = 0;
+    char *xml = NULL;
+    MI_XmlFrame *frames = NULL;
+    MI_FrameCandidate *candidates = NULL;
+    int32_t *selected = NULL;
+    int *counts = NULL;
+    int frameCount;
+    int kept = 0;
+    int written = 0;
+    char tempPath[MI_PATH_MAX] = {0};
+    FILE *out = NULL;
+    int ok = 0;
+
+    if (info == NULL || info->animCount <= 0 || xmlPath == NULL || animsetPath == NULL)
+        return 0;
+    xml = MI_ReadFile(xmlPath, &xmlSize, 16L * 1024L * 1024L);
+    if (xml == NULL) goto cleanup;
+
+    frames = (MI_XmlFrame *)malloc(sizeof(*frames) * MI_MAX_XML_FRAMES);
+    if (frames == NULL) goto cleanup;
+    frameCount = MI_ParseXmlFrames(xml, frames, MI_MAX_XML_FRAMES);
+    if (frameCount <= 0) goto cleanup;
+
+    candidates = (MI_FrameCandidate *)malloc(sizeof(*candidates) * (size_t)frameCount);
+    selected = (int32_t *)malloc(sizeof(*selected) *
+               (size_t)MI_MAX_CHAR_ANIMS * MI_MAX_ANIM_FRAMES);
+    counts = (int *)calloc((size_t)MI_MAX_CHAR_ANIMS, sizeof(*counts));
+    if (candidates == NULL || selected == NULL || counts == NULL) goto cleanup;
+
+    for (int a = 0; a < info->animCount; ++a) {
+        const MI_CharAnim *anim = &info->anims[a];
+        int candidateCount = 0;
+        int outputCount = 0;
+
+        for (int f = 0; f < frameCount; ++f) {
+            uint64_t order;
+            if (MI_FrameSuffix(frames[f].name, anim->prefix, &order)) {
+                candidates[candidateCount].frameIndex = f;
+                candidates[candidateCount].order = order;
+                ++candidateCount;
+            }
+        }
+        if (candidateCount == 0) continue;
+        qsort(candidates, (size_t)candidateCount, sizeof(*candidates),
+              MI_CompareFrameCandidate);
+
+        if (anim->indexCount > 0) {
+            for (int k = 0; k < anim->indexCount && outputCount < MI_MAX_ANIM_FRAMES; ++k) {
+                int index = anim->indices[k];
+                if (index >= 0 && index < candidateCount)
+                    selected[(size_t)a * MI_MAX_ANIM_FRAMES + outputCount++] =
+                        candidates[index].frameIndex;
+            }
+        } else {
+            int take = candidateCount < MI_MAX_ANIM_FRAMES ? candidateCount : MI_MAX_ANIM_FRAMES;
+            for (int k = 0; k < take; ++k)
+                selected[(size_t)a * MI_MAX_ANIM_FRAMES + outputCount++] =
+                    candidates[k].frameIndex;
+        }
+        counts[a] = outputCount;
+        if (outputCount > 0) ++kept;
+    }
+    if (kept == 0) goto cleanup;
+
+    if (snprintf(tempPath, sizeof(tempPath), "%s.tmp", animsetPath) >= (int)sizeof(tempPath))
+        goto cleanup;
+    if (!MI_EnsureParent(tempPath)) goto cleanup;
+    out = fopen(tempPath, "wb");
+    if (out == NULL) goto cleanup;
+
+    {
+        int32_t animationCount = (int32_t)kept;
+        if (!MI_WriteExact(out, &animationCount, sizeof(animationCount))) goto cleanup;
+    }
+
+    for (int a = 0; a < info->animCount; ++a) {
+        const MI_CharAnim *anim = &info->anims[a];
+        int32_t nameLength;
+        int32_t dataCount;
+        if (counts[a] <= 0) continue;
+        nameLength = (int32_t)strlen(anim->prefix);
+        dataCount = (int32_t)(counts[a] * 6);
+        if (!MI_WriteExact(out, &nameLength, sizeof(nameLength)) ||
+            !MI_WriteExact(out, anim->prefix, (size_t)nameLength) ||
+            !MI_WriteExact(out, &dataCount, sizeof(dataCount))) goto cleanup;
+
+        for (int k = 0; k < counts[a]; ++k) {
+            const MI_XmlFrame *frame = &frames[
+                selected[(size_t)a * MI_MAX_ANIM_FRAMES + k]];
+            int32_t packed[6] = {
+                frame->x, frame->y, frame->w, frame->h, frame->fx, frame->fy
+            };
+            if (!MI_WriteExact(out, packed, sizeof(packed))) goto cleanup;
+        }
+        ++written;
+    }
+
+    if (ferror(out)) goto cleanup;
+    if (fclose(out) != 0) {
+        out = NULL;
+        goto cleanup;
+    }
+    out = NULL;
+
+    (void)remove(animsetPath);
+    if (rename(tempPath, animsetPath) != 0) goto cleanup;
+    ok = written;
+
+cleanup:
+    if (out != NULL) fclose(out);
+    if (!ok && tempPath[0] != '\0') (void)remove(tempPath);
+    free(counts);
+    free(selected);
+    free(candidates);
+    free(frames);
+    free(xml);
+    return ok;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Icones e importacao de recursos                                            */
+/* ------------------------------------------------------------------------- */
+
+static int MI_CopyIconAlias(const char *srcMod, const char *dstMod,
+                            const char *iconKey, long *bytes)
+{
+    char srcIcons[MI_PATH_MAX];
+    char dstIcons[MI_PATH_MAX];
+    char source[MI_PATH_MAX];
+    char destination[MI_PATH_MAX];
+    char candidate[96];
+    const char *names[2];
+
+    if (!MI_IsSafeComponent(iconKey)) return 0;
+    if (!MI_Join(srcIcons, sizeof(srcIcons), srcMod, "images/icons") ||
+        !MI_Join(dstIcons, sizeof(dstIcons), dstMod, "images/icons")) return 0;
+    if (!MI_EnsureDirectory(dstIcons)) return 0;
+    if (snprintf(destination, sizeof(destination), "%s/%s.png", dstIcons, iconKey) >=
+        (int)sizeof(destination)) return 0;
+
+    names[0] = iconKey;
+    names[1] = NULL;
+    if (strncmp(iconKey, "icon-", 5) != 0) {
+        (void)snprintf(candidate, sizeof(candidate), "icon-%s", iconKey);
+        names[1] = candidate;
+    }
+
+    for (int i = 0; i < 2; ++i) {
+        if (names[i] == NULL) continue;
+        if (snprintf(source, sizeof(source), "%s/%s.png", srcIcons, names[i]) >=
+            (int)sizeof(source)) continue;
+        if (FileExists(source) && MI_CopyFile(source, destination, bytes)) return 1;
+    }
+    return 0;
+}
+
+static void MI_CopyCollectedIcons(MI_ImportContext *context)
+{
+    for (int i = 0; i < context->iconNames.count; ++i) {
+        if (MI_CopyIconAlias(context->srcRoot, context->dstRoot,
+                             context->iconNames.names[i], &context->stats->bytes)) {
+            ++context->stats->icons;
+        }
+        /* A chave de week como "icon-charlie" tambem pode ser pedida sem prefixo
+         * pelo HUD de personagem. Preservamos as duas formas como alias. */
+        if (strncmp(context->iconNames.names[i], "icon-", 5) == 0 &&
+            context->iconNames.names[i][5] != '\0') {
+            if (MI_CopyIconAlias(context->srcRoot, context->dstRoot,
+                                 context->iconNames.names[i] + 5,
+                                 &context->stats->bytes)) {
+                ++context->stats->icons;
+            }
+        }
+    }
+}
+
+static int MI_CopyWeeksRecursive(const char *sourceDir, const char *destinationDir,
+                                 MI_ImportContext *context, int depth)
+{
+    FilePathList entries;
+    FilePathList dirs;
+    int ok = 1;
+    if (depth > MI_MAX_DEPTH || !DirectoryExists(sourceDir)) return depth <= MI_MAX_DEPTH;
+    if (!MI_EnsureDirectory(destinationDir)) return 0;
+
+    entries = MI_ListEntries(sourceDir);
+    for (unsigned i = 0; i < entries.count; ++i) {
+        const char *base = MI_BaseName(entries.paths[i]);
+        char destination[MI_PATH_MAX];
+        if (MI_IsDirectoryPath(entries.paths[i]) || !MI_EndsWithI(base, ".json")) continue;
+        if (!MI_IsSafeComponent(base) || !MI_Join(destination, sizeof(destination), destinationDir, base)) {
+            ok = 0;
+            continue;
+        }
+        MI_ParseWeekIcons(entries.paths[i], &context->iconNames);
+        if (MI_CopyFile(entries.paths[i], destination, &context->stats->bytes))
+            ++context->stats->weeks;
+        else
+            ok = 0;
+    }
+    UnloadDirectoryFiles(entries);
+
+    dirs = MI_ListDirectories(sourceDir);
+    for (unsigned i = 0; i < dirs.count; ++i) {
+        if (!MI_CopyWeeksRecursive(dirs.paths[i], destinationDir, context, depth + 1)) ok = 0;
+    }
+    UnloadDirectoryFiles(dirs);
+    return ok;
+}
+
+static int MI_CopyStagesRecursive(const char *sourceDir, const char *destinationDir,
+                                  ModImportStats *stats, int depth)
+{
+    FilePathList entries;
+    FilePathList dirs;
+    int ok = 1;
+    if (depth > MI_MAX_DEPTH || !DirectoryExists(sourceDir)) return depth <= MI_MAX_DEPTH;
+    if (!MI_EnsureDirectory(destinationDir)) return 0;
+
+    entries = MI_ListEntries(sourceDir);
+    for (unsigned i = 0; i < entries.count; ++i) {
+        const char *base = MI_BaseName(entries.paths[i]);
+        char destination[MI_PATH_MAX];
+        if (MI_IsDirectoryPath(entries.paths[i])) continue;
+        if (!MI_EndsWithI(base, ".lua") && !MI_EndsWithI(base, ".json")) continue;
+        if (!MI_IsSafeComponent(base) || !MI_Join(destination, sizeof(destination), destinationDir, base)) {
+            ok = 0;
+            continue;
+        }
+        if (MI_CopyFile(entries.paths[i], destination, &stats->bytes)) ++stats->stages;
+        else ok = 0;
+    }
+    UnloadDirectoryFiles(entries);
+
+    dirs = MI_ListDirectories(sourceDir);
+    for (unsigned i = 0; i < dirs.count; ++i) {
+        if (!MI_CopyStagesRecursive(dirs.paths[i], destinationDir, stats, depth + 1)) ok = 0;
+    }
+    UnloadDirectoryFiles(dirs);
+    return ok;
+}
+
+static int MI_CopyChartsFromDirectory(const char *sourceDir, const char *destinationSong,
+                                     MI_ImportContext *context, int *chartCount)
+{
+    FilePathList entries;
+    int ok = 1;
+    if (!DirectoryExists(sourceDir)) return 1;
+    entries = MI_ListEntries(sourceDir);
+
+    for (unsigned i = 0; i < entries.count; ++i) {
+        const char *base = MI_BaseName(entries.paths[i]);
+        char destination[MI_PATH_MAX];
+        if (MI_IsDirectoryPath(entries.paths[i])) continue;
+        if (MI_EndsWithI(base, ".lua")) {
+            ++context->stats->skippedLua;
+            continue;
+        }
+        if (!MI_EndsWithI(base, ".json")) continue;
+        if (MI_CaseEqual(base, "events.json")) {
+            ++context->stats->skippedEvents;
+            continue;
+        }
+        if (!MI_IsSafeComponent(base) || !MI_Join(destination, sizeof(destination), destinationSong, base)) {
+            ok = 0;
+            continue;
+        }
+        if (FileExists(destination)) {
+            /* Reimport atualiza arquivos existentes sem duplicar a estatistica. */
+            (void)MI_CopyFile(entries.paths[i], destination, &context->stats->bytes);
+            MI_ParseChartActors(entries.paths[i], &context->iconNames);
+            continue;
+        }
+        if (MI_CopyFile(entries.paths[i], destination, &context->stats->bytes)) {
+            ++context->stats->charts;
+            if (chartCount != NULL) ++*chartCount;
+            MI_ParseChartActors(entries.paths[i], &context->iconNames);
+        } else {
+            ok = 0;
+        }
+    }
+    UnloadDirectoryFiles(entries);
+    return ok;
+}
+
+static int MI_StartsWithI(const char *text, const char *prefix)
+{
+    if (text == NULL || prefix == NULL) return 0;
+    while (*prefix) {
+        unsigned char a = (unsigned char)*text++;
+        unsigned char b = (unsigned char)*prefix++;
+        if (a >= 'A' && a <= 'Z') a = (unsigned char)(a + ('a' - 'A'));
+        if (b >= 'A' && b <= 'Z') b = (unsigned char)(b + ('a' - 'A'));
+        if (a != b) return 0;
+    }
+    return 1;
+}
+
+static void MI_CopyVoiceFiles(const char *sourceSong, const char *destinationSong,
+                              MI_ImportContext *context)
+{
+    FilePathList entries = MI_ListEntries(sourceSong);
+    for (unsigned i = 0; i < entries.count; ++i) {
+        const char *base = MI_BaseName(entries.paths[i]);
+        char destination[MI_PATH_MAX];
+        if (MI_IsDirectoryPath(entries.paths[i]) || !MI_StartsWithI(base, "Voices")) continue;
+        if (!MI_EndsWithI(base, ".ogg") && !MI_EndsWithI(base, ".mp3") &&
+            !MI_EndsWithI(base, ".wav")) continue;
+        if (!MI_IsSafeComponent(base) ||
+            !MI_Join(destination, sizeof(destination), destinationSong, base)) continue;
+        (void)MI_CopyFile(entries.paths[i], destination, &context->stats->bytes);
+    }
+    UnloadDirectoryFiles(entries);
+}
+
+static int MI_CopySongFolder(const char *sourceSong, const char *destinationSong,
+                             const char *sourceData, MI_ImportContext *context)
+{
+    static const char *instrumentals[] = {"Inst.ogg", "Inst.mp3", "Inst.wav"};
+    char sourceFile[MI_PATH_MAX];
+    char destinationFile[MI_PATH_MAX];
+    int hasInst = 0;
+    int charts = 0;
+    char chartDir[MI_PATH_MAX];
+
+    if (!MI_EnsureDirectory(destinationSong)) return 0;
+
+    for (size_t i = 0; i < sizeof(instrumentals) / sizeof(instrumentals[0]); ++i) {
+        if (!MI_Join(sourceFile, sizeof(sourceFile), sourceSong, instrumentals[i])) continue;
+        if (!FileExists(sourceFile)) continue;
+        if (!MI_Join(destinationFile, sizeof(destinationFile), destinationSong, instrumentals[i])) continue;
+        if (MI_CopyFile(sourceFile, destinationFile, &context->stats->bytes)) {
+            hasInst = 1;
+            break;
+        }
+    }
+    if (!hasInst) return 0;
+
+    MI_CopyVoiceFiles(sourceSong, destinationSong, context);
+
+    if (sourceData != NULL && sourceData[0] != '\0') {
+        (void)MI_CopyChartsFromDirectory(sourceData, destinationSong, context, &charts);
+    }
+    (void)MI_CopyChartsFromDirectory(sourceSong, destinationSong, context, &charts);
+    if (MI_Join(chartDir, sizeof(chartDir), sourceSong, "charts") && DirectoryExists(chartDir))
+        (void)MI_CopyChartsFromDirectory(chartDir, destinationSong, context, &charts);
+
+    if (charts > 0) ++context->stats->songs;
+    return charts > 0;
+}
+
+static int MI_ImportSongs(const char *srcMod, const char *dstMod,
+                          MI_ImportContext *context)
+{
+    char sourceSongs[MI_PATH_MAX];
+    char sourceData[MI_PATH_MAX];
+    char destinationSongs[MI_PATH_MAX];
+    FilePathList songDirs;
+    if (!MI_Join(sourceSongs, sizeof(sourceSongs), srcMod, "songs") ||
+        !MI_Join(sourceData, sizeof(sourceData), srcMod, "data") ||
+        !MI_Join(destinationSongs, sizeof(destinationSongs), dstMod, "songs")) return 0;
+    if (!DirectoryExists(sourceSongs)) return 1;
+    if (!MI_EnsureDirectory(destinationSongs)) return 0;
+
+    songDirs = MI_ListDirectories(sourceSongs);
+    for (unsigned i = 0; i < songDirs.count; ++i) {
+        char destinationSong[MI_PATH_MAX];
+        char sourceChart[MI_PATH_MAX];
+        const char *songName = MI_BaseName(songDirs.paths[i]);
+        if (!MI_IsSafeComponent(songName) ||
+            !MI_Join(destinationSong, sizeof(destinationSong), destinationSongs, songName)) continue;
+
+        sourceChart[0] = '\0';
+        if (MI_Join(sourceChart, sizeof(sourceChart), sourceData, songName) &&
+            !DirectoryExists(sourceChart)) sourceChart[0] = '\0';
+
+        if (sourceChart[0] != '\0') {
+            (void)MI_CopySongFolder(songDirs.paths[i], destinationSong, sourceChart, context);
+        } else {
+            (void)MI_CopySongFolder(songDirs.paths[i], destinationSong, NULL, context);
+        }
+    }
+    UnloadDirectoryFiles(songDirs);
+
+    /* Alguns mods colocam charts em songs/<nome>/charts; os arquivos diretos
+     * ja foram tratados em MI_CopySongFolder. */
+    return 1;
+}
+
+static int MI_ImportCharacters(const char *srcMod, const char *dstMod,
+                               MI_ImportContext *context)
+{
+    char sourceChars[MI_PATH_MAX];
+    char destinationChars[MI_PATH_MAX];
+    char sourceImageRoot[MI_PATH_MAX];
+    char destinationImageChars[MI_PATH_MAX];
+    FilePathList entries;
+    int ok = 1;
+
+    if (!MI_Join(sourceChars, sizeof(sourceChars), srcMod, "characters") ||
+        !MI_Join(destinationChars, sizeof(destinationChars), dstMod, "characters") ||
+        !MI_Join(sourceImageRoot, sizeof(sourceImageRoot), srcMod, "images") ||
+        !MI_Join(destinationImageChars, sizeof(destinationImageChars), dstMod, "images/characters"))
+        return 0;
+    if (!DirectoryExists(sourceChars)) return 1;
+    if (!MI_EnsureDirectory(destinationChars)) return 0;
+
+    entries = MI_ListEntries(sourceChars);
+    for (unsigned i = 0; i < entries.count; ++i) {
+        char destinationJson[MI_PATH_MAX];
+        char stem[MI_NAME_MAX];
+        MI_CharInfo info;
+        const char *base = MI_BaseName(entries.paths[i]);
+
+        if (MI_IsDirectoryPath(entries.paths[i]) || !MI_EndsWithI(base, ".json") ||
+            !MI_IsSafeComponent(base)) continue;
+        if (!MI_Join(destinationJson, sizeof(destinationJson), destinationChars, base)) {
+            ok = 0;
+            continue;
+        }
+        if (!MI_CopyFile(entries.paths[i], destinationJson, &context->stats->bytes)) {
+            ok = 0;
+            continue;
+        }
+        ++context->stats->characters;
+        MI_GetStem(base, stem, sizeof(stem));
+        MI_AddName(&context->iconNames, stem);
+
+        if (MI_ParseCharacterJson(entries.paths[i], stem, &info)) {
+            char atlasXml[MI_PATH_MAX];
+            char animsetPath[MI_PATH_MAX];
+            const char *imagePath = info.imagePath[0] ? info.imagePath : "characters";
+            int xmlFound = 0;
+
+            if (snprintf(atlasXml, sizeof(atlasXml), "%s/%s.xml", sourceImageRoot, imagePath) <
+                (int)sizeof(atlasXml) && FileExists(atlasXml)) {
+                xmlFound = 1;
+            } else {
+                const char *imageBase = MI_BaseName(imagePath);
+                if (snprintf(atlasXml, sizeof(atlasXml), "%s/characters/%s.xml",
+                             sourceImageRoot, imageBase) < (int)sizeof(atlasXml) &&
+                    FileExists(atlasXml)) xmlFound = 1;
+            }
+
+            if (xmlFound &&
+                snprintf(animsetPath, sizeof(animsetPath), "%s/%s.animset",
+                         destinationImageChars, stem) < (int)sizeof(animsetPath)) {
+                int generated = MI_WriteAnimset(&info, atlasXml, animsetPath);
+                if (generated > 0) {
+                    ++context->stats->animsets;
+                    context->stats->bytes += MI_FileSize(animsetPath);
+                }
+            }
+
+            MI_AddName(&context->iconNames, info.healthicon);
+        }
+        MI_AddName(&context->iconNames, stem);
+    }
+    UnloadDirectoryFiles(entries);
+    return ok;
+}
+
+/* ------------------------------------------------------------------------- */
+/* API publica                                                               */
+/* ------------------------------------------------------------------------- */
+
+char ModImport_Run(const char *srcMod, const char *dstRoot, const char *modName,
+                   char *msg, size_t msgSize, ModImportStats *stats)
+{
+    ModImportStats localStats;
+    MI_ImportContext context;
+    char modNameSafe[64];
+    char destinationMod[MI_PATH_MAX];
+    char sourceWeeks[MI_PATH_MAX];
+    char destinationWeeks[MI_PATH_MAX];
+    char sourceStages[MI_PATH_MAX];
+    char destinationStages[MI_PATH_MAX];
+    char sourceDataStages[MI_PATH_MAX];
+    char destinationDataStages[MI_PATH_MAX];
+    char sourceImages[MI_PATH_MAX];
+    char destinationImages[MI_PATH_MAX];
+    int copiedImages = 0;
+    int ok = 1;
+
+    memset(&localStats, 0, sizeof(localStats));
+    if (stats != NULL) memset(stats, 0, sizeof(*stats));
+    if (msg != NULL && msgSize > 0) msg[0] = '\0';
+
+    if (srcMod == NULL || dstRoot == NULL || modName == NULL ||
+        !DirectoryExists(srcMod) || !MI_IsModsRoot(dstRoot)) {
+        if (msg != NULL && msgSize > 0)
+            (void)snprintf(msg, msgSize, "import: origem/raiz invalida (destino deve ser assets/mods)");
+        return 0;
+    }
+
+    MI_SanitizeModName(modNameSafe, sizeof(modNameSafe), modName);
+    if (!MI_Join(destinationMod, sizeof(destinationMod), dstRoot, modNameSafe) ||
+        !MI_EnsureDirectory(destinationMod)) {
+        if (msg != NULL && msgSize > 0)
+            (void)snprintf(msg, msgSize, "import: nao foi possivel criar %s", destinationMod);
+        return 0;
+    }
+
+    memset(&context, 0, sizeof(context));
+    context.srcRoot = srcMod;
+    context.dstRoot = destinationMod;
+    context.stats = &localStats;
+
+    if (!MI_Join(sourceWeeks, sizeof(sourceWeeks), srcMod, "weeks") ||
+        !MI_Join(destinationWeeks, sizeof(destinationWeeks), destinationMod, "weeks") ||
+        !MI_Join(sourceStages, sizeof(sourceStages), srcMod, "stages") ||
+        !MI_Join(destinationStages, sizeof(destinationStages), destinationMod, "stages") ||
+        !MI_Join(sourceDataStages, sizeof(sourceDataStages), srcMod, "data/stages") ||
+        !MI_Join(destinationDataStages, sizeof(destinationDataStages), destinationMod, "data/stages") ||
+        !MI_Join(sourceImages, sizeof(sourceImages), srcMod, "images") ||
+        !MI_Join(destinationImages, sizeof(destinationImages), destinationMod, "images")) {
+        if (msg != NULL && msgSize > 0)
+            (void)snprintf(msg, msgSize, "import: caminho excede o limite permitido");
+        return 0;
+    }
+
+    if (!MI_ImportSongs(srcMod, destinationMod, &context)) ok = 0;
+
+    if (DirectoryExists(sourceWeeks) &&
+        !MI_CopyWeeksRecursive(sourceWeeks, destinationWeeks, &context, 0)) ok = 0;
+    if (DirectoryExists(sourceStages) &&
+        !MI_CopyStagesRecursive(sourceStages, destinationStages, &localStats, 0)) ok = 0;
+    if (DirectoryExists(sourceDataStages) &&
+        !MI_CopyStagesRecursive(sourceDataStages, destinationDataStages, &localStats, 0)) ok = 0;
+
+    if (DirectoryExists(sourceImages)) {
+        if (!MI_CopyTree(sourceImages, destinationImages, &localStats.bytes,
+                         &copiedImages, 0)) ok = 0;
+        localStats.images += copiedImages;
+    }
+
+    if (!MI_ImportCharacters(srcMod, destinationMod, &context)) ok = 0;
+    MI_CopyCollectedIcons(&context);
+
+    if (stats != NULL) *stats = localStats;
+    if (msg != NULL && msgSize > 0) {
+        (void)snprintf(msg, msgSize,
+            "import %s: %d musicas, %d charts, %d weeks, %d stages, %d arquivos de imagem, %d personagens, %d animsets, %d icones (%ld KB)",
+            modNameSafe, localStats.songs, localStats.charts, localStats.weeks,
+            localStats.stages, localStats.images, localStats.characters,
+            localStats.animsets, localStats.icons, localStats.bytes / 1024L);
+    }
+
+    /* Mods sem songs tambem podem conter stages/personagens/imagens validos. */
+    if (localStats.songs == 0 && localStats.weeks == 0 && localStats.stages == 0 &&
+        localStats.images == 0 && localStats.characters == 0) return 0;
+    return (char)(ok != 0);
+}
+
+char ModImport_ScanMods(const char *dstRoot, ModImportUsage *out)
+{
+    ModImportUsage usage;
+    FilePathList mods;
+    memset(&usage, 0, sizeof(usage));
+    if (out != NULL) *out = usage;
+    if (!MI_IsModsRoot(dstRoot) || !DirectoryExists(dstRoot)) return 0;
+
+    mods = MI_ListDirectories(dstRoot);
+    for (unsigned i = 0; i < mods.count; ++i) {
+        char songsPath[MI_PATH_MAX];
+        FilePathList songs;
+        if (!MI_IsSafeComponent(MI_BaseName(mods.paths[i]))) continue;
+        ++usage.mods;
+        {
+            long bytes = MI_CountTreeBytes(mods.paths[i], 0);
+            if (bytes > 0 && usage.bytes <= LONG_MAX - bytes) usage.bytes += bytes;
+        }
+        if (!MI_Join(songsPath, sizeof(songsPath), mods.paths[i], "songs") ||
+            !DirectoryExists(songsPath)) continue;
+        songs = MI_ListDirectories(songsPath);
+        usage.songs += (int)songs.count;
+        UnloadDirectoryFiles(songs);
+    }
+    UnloadDirectoryFiles(mods);
+    if (out != NULL) *out = usage;
+    return 1;
+}
+
+char ModImport_DeleteAll(const char *dstRoot, char *msg, size_t msgSize,
+                         int *removedMods, long *freedBytes)
+{
+    FilePathList mods;
+    FilePathList rootEntries;
+    int modCount = 0;
+    int removedFiles = 0;
+    long bytes = 0;
+    int ok = 1;
+
+    if (removedMods != NULL) *removedMods = 0;
+    if (freedBytes != NULL) *freedBytes = 0;
+    if (msg != NULL && msgSize > 0) msg[0] = '\0';
+
+    if (!MI_IsModsRoot(dstRoot)) {
+        if (msg != NULL && msgSize > 0)
+            (void)snprintf(msg, msgSize, "delete: raiz recusada (use somente assets/mods)");
+        return 0;
+    }
+    if (!DirectoryExists(dstRoot)) {
+        if (msg != NULL && msgSize > 0)
+            (void)snprintf(msg, msgSize, "delete: pasta de mods ainda nao existe");
+        return 1;
+    }
+
+    bytes = MI_CountTreeBytes(dstRoot, 0);
+    mods = MI_ListDirectories(dstRoot);
+    for (unsigned i = 0; i < mods.count; ++i) {
+        ++modCount;
+        if (!MI_RemoveTree(mods.paths[i], 0, &removedFiles)) ok = 0;
+        if (MI_RMDIR(mods.paths[i]) != 0 && DirectoryExists(mods.paths[i])) ok = 0;
+    }
+    UnloadDirectoryFiles(mods);
+
+    /* Remove arquivos soltos na raiz, mas preserva a pasta assets/mods. */
+    rootEntries = MI_ListEntries(dstRoot);
+    for (unsigned i = 0; i < rootEntries.count; ++i) {
+        if (MI_IsDirectoryPath(rootEntries.paths[i])) continue;
+        if (remove(rootEntries.paths[i]) == 0) ++removedFiles;
+        else ok = 0;
+    }
+    UnloadDirectoryFiles(rootEntries);
+
+    if (removedMods != NULL) *removedMods = modCount;
+    if (freedBytes != NULL) *freedBytes = bytes;
+    if (msg != NULL && msgSize > 0) {
+        (void)snprintf(msg, msgSize,
+            "delete: %d mods, %d arquivos, aproximadamente %ld KB liberados em %s",
+            modCount, removedFiles, bytes / 1024L, dstRoot);
+    }
+    return (char)(ok != 0);
 }
