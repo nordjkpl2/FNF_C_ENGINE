@@ -1,6 +1,6 @@
 /* // * Friday Night Funkin´ c engine (c) 2026 nordjkpl */
 
-#include"scenes/AllScenes.h"
+#include "scenes/AllScenes.h"
 /* //* Main Menu */
 typedef struct {
     RayAnimatedObject button;
@@ -16,6 +16,12 @@ static int selectedButton;
 
 static Camera2D cam;
 
+// Posições em cache (calculadas uma única vez)
+static Vector2 moddingPos;
+static const Vector2 versionPos = { 12.0f, 694.0f }; // 720 - 18 - 8
+static const char* const versionText = "FNF C Engine v0.6.4.2";
+static const char* const moddingText = "MODDING";
+
 static void Button_SetPosition(int i) {
     MenuButton* button = menuButtons + i;
     RayAnimatedObject* obj = &button->button;
@@ -28,12 +34,13 @@ static void Button_SetPosition(int i) {
 }
 
 static void MenuState_Create([[maybe_unused]] RayScene* scene) { 
-    // ok
+    // Camera
     {
         cam.target = (Vector2) {1280 / 2, 720 / 2};
         cam.zoom = 1;
     }
-    // load bg
+
+    // Load BG
     {
         Render_DefaultRGT(&bg);  
         bg.objType = RGT_IMAGE;
@@ -42,13 +49,12 @@ static void MenuState_Create([[maybe_unused]] RayScene* scene) {
         bg.position.x = 1280 / 2 - GraphicObject_Sizes(&bg).x / 2;
     }
 
-    // initializing buttons
+    // Initializing buttons
     {
         buttonAnimations = AnimationSet_LoadAnimations("assets/images/menu/menuOptions.animset", Render_LoadTexture("assets/images/menu/menuOptions.png")); 
         for(int i = 0; i < buttonAnimations.animationCount; i++)
             AnimationSet_SetAnimationData(&buttonAnimations, i, 18, 1);
 
-        // make this only happen the first time the animations are loaded
         menuButtons[0] = (MenuButton) {
             .idle = AnimationSet_FindAnimation(&buttonAnimations, "story mode idle"),
             .selected = AnimationSet_FindAnimation(&buttonAnimations, "story mode selected")
@@ -77,16 +83,21 @@ static void MenuState_Create([[maybe_unused]] RayScene* scene) {
             Button_SetPosition(i);
         }
     }
+
+    // Pré-calcula a posição centralizada do texto MODDING (zero custo por frame)
+    {
+        Vector2 size = MeasureTextEx(mainFont, moddingText, 40, 4);
+        moddingPos = (Vector2){ (1280 - size.x) / 2.0f, 655.0f };
+    }
 } 
 
-// also serves as update
 static void MenuState_Draw([[maybe_unused]] RayScene* scene) { 
     Render_SetCamera(&cam);
 
     ClearBackground(BLACK);
     Render_DrawGraphicObject(&bg);    
 
-    // detectin key presses
+    // Detecção de teclado e navegação
     {
         int newSelected = selectedButton;
         
@@ -107,7 +118,7 @@ static void MenuState_Draw([[maybe_unused]] RayScene* scene) {
             }
             else if(selectedButton == 1) {
                 Freeplay_SetScene();
-                return; // do not execute all the rest!!!!
+                return;
             }
             else if(selectedButton == 2) {
                 OptionsMenu_SetScene();
@@ -123,17 +134,13 @@ static void MenuState_Draw([[maybe_unused]] RayScene* scene) {
         if(selectedButton != newSelected) {
             if(selectedButton < 3) {
                 MenuButton* oldSelected = menuButtons + selectedButton;
-                RayAnimatedObject* oldSelectedButton = &oldSelected->button;
-
-                AnimatedObject_SetAnimation(oldSelectedButton, oldSelected->idle);
+                AnimatedObject_SetAnimation(&oldSelected->button, oldSelected->idle);
                 Button_SetPosition(selectedButton);
             }
 
             if(newSelected < 3) {
                 MenuButton* newSelectedM = menuButtons + newSelected;
-                RayAnimatedObject* newSelectedButton = &newSelectedM->button;
-
-                AnimatedObject_SetAnimation(newSelectedButton, newSelectedM->selected);
+                AnimatedObject_SetAnimation(&newSelectedM->button, newSelectedM->selected);
                 Button_SetPosition(newSelected);
             }
 
@@ -141,28 +148,25 @@ static void MenuState_Draw([[maybe_unused]] RayScene* scene) {
         }
     }
     
-    // updating bg background
+    // Atualização suave da posição Y do fundo
     bg.position.y = Lerp(bg.position.y, -selectedButton * 15, RayGame_DeltaTime() * 10);
 
-    // drawing buttons 
-    {
-        BeginBlendMode(BLEND_ALPHA_PREMULTIPLY);
-        for(int i = 0; i < 3; i++) {
-            MenuButton* button = menuButtons + i;
-            RayAnimatedObject* obj = &button->button; 
-            AnimatedObject_UpdateFrame(obj);
-            Render_DrawAnimatedObject(obj);
-        }
-        EndBlendMode();
+    // Atualiza lógica dos frames antes de abrir o blend mode
+    for(int i = 0; i < 3; i++) {
+        AnimatedObject_UpdateFrame(&menuButtons[i].button);
     }
 
-    // 4th item: MODDING (text, art comes later)
+    // Desenha os botões
+    BeginBlendMode(BLEND_ALPHA_PREMULTIPLY);
+    for(int i = 0; i < 3; i++) {
+        Render_DrawAnimatedObject(&menuButtons[i].button);
+    }
+    EndBlendMode();
+
+    // 4th item: MODDING (renderização com posições pré-computadas)
     {
-        const char* label = "MODDING";
         const int fontSize = 40;
         const int shadow = 3;
-        Vector2 size = MeasureTextEx(mainFont, label, fontSize, 4);
-        Vector2 pos = {(1280 - size.x) / 2 + shadow, 655 + shadow};
 
         Color fill = WHITE;
         Color outline = BLACK;
@@ -174,10 +178,17 @@ static void MenuState_Draw([[maybe_unused]] RayScene* scene) {
             outline.a = 100;
         }
 
-        DrawTextEx(mainFont, label, pos, fontSize, 4, outline);
-        pos.x -= shadow;
-        pos.y -= shadow;
-        DrawTextEx(mainFont, label, pos, fontSize, 4, fill);
+        DrawTextEx(mainFont, moddingText, (Vector2){moddingPos.x + shadow, moddingPos.y + shadow}, fontSize, 4, outline);
+        DrawTextEx(mainFont, moddingText, moddingPos, fontSize, 4, fill);
+    }
+
+    // Watermark de versão no canto inferior esquerdo
+    {
+        const int fontSize = 18;
+        const float shadow = 1.5f;
+
+        DrawTextEx(mainFont, versionText, (Vector2){versionPos.x + shadow, versionPos.y + shadow}, fontSize, 1, BLACK);
+        DrawTextEx(mainFont, versionText, versionPos, fontSize, 1, (Color){ 255, 255, 255, 180 });
     }
 
     Render_StopCamera();

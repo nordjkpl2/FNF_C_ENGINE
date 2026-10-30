@@ -1,4 +1,4 @@
-# 🌟 Friday Night Funkin´ — C engine
+# 🌟 Friday Night Funkin´ — Cengine
 
 A performance-focused Friday Night Funkin' engine written in pure C (C23) on top of raylib
 
